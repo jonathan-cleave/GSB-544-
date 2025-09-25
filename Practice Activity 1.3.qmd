@@ -51,8 +51,6 @@ It should also be clear by how `plotnine` treats these variables.
 
 1. Create side-by-side boxplots of the `mpg` variable by the different values of the `am` variable. What happens if you convert the `am` variable back to float values and then try to create this same plot? Explain the differences between the two plots.
 
-2. Create overlaid histograms of the `hp` variable for the different values of the `cyl` variable. What happens if you convert the `cyl` variable back to float values and then try to create this same plot? Explain the differences between the two plots.
-
 ```{python}
 # Create plot for (1) here
 from plotnine import ggplot, geom_point, aes, geom_boxplot
@@ -60,6 +58,19 @@ from plotnine import ggplot, geom_point, aes, geom_boxplot
 + geom_boxplot()
 )
 ```
+
+```{python}
+df["am"] = df["am"].astype(float)
+(ggplot(df, aes(x = "am", y = "mpg"))
++ geom_boxplot()
+)
+```
+
+
+The difference between the two plots is the first uses a dichotomous variable to group mpg for am vs non am cars, while the second combines am and non am cars across a range for mpg.
+
+2. Create overlaid histograms of the `hp` variable for the different values of the `cyl` variable. What happens if you convert the `cyl` variable back to float values and then try to create this same plot? Explain the differences between the two plots.
+
 
 ```{python}
 # Create plot for (2) here
@@ -72,6 +83,20 @@ aes(
 + geom_histogram()
 )
 ```
+
+```{python}
+df['cyl'] = df['cyl'].astype(float)
+(ggplot(df,
+aes(
+  x = "hp",
+  fill = "cyl"
+))
++ geom_histogram()
+)
+```
+
+
+The diffrence between the string plot is it adds a color overlay of the different cylinders based on the hp, while converting the cylinders back to a float value removes the overlay, but doesn't change the histogram.
 
 Some of these variables, like the `cyl` variable, have numeric values that actually make sense as numbers (i.e. the number of cylinders in the engine). However, it doesn't make the most sense to "do math" with this type of variable (e.g. take averages and such) because there are so few different value this can take on AND they're an explicit choice made by the car manufacturer. So, it makes more sense to treat the `cyl` variable as a categorical variable despite it having numeric values.
 
