@@ -1,0 +1,281 @@
+---
+title: "Lab 1 Gapminder Data Visualization"
+format: 
+   html
+---
+
+Github Repository: <https://github.com/jonathan-cleave/GSB-544-.git>
+
+# Task 1
+
+## 1. Identify aesthetics
+
+
+Income is the indepdent variable, Life expectancy is the depdentant variable and it is using a bubble chart to map each country based on 2010. The x-axis is using a log scale, but the data is not transformed. Also, the size of the bubbles is dependant on the population of each country.
+
+## 2. Importing the dataset
+```{python}
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from plotnine import ggplot, geom_point, aes, geom_boxplot
+```
+
+```{python}
+# loading csv
+q1 = pd.read_csv("C:/Users/jonat/Documents/Calpoly MSBA/Fall/Machine Learning 544/Data/q1data.csv")
+```
+
+```{python}
+#look at data types
+q1.dtypes
+```
+
+## 3. Recreating the plot
+
+```{python}
+# filter to 2010
+q1_2010 = q1.query("year == 2010")
+q1_2010
+```
+```{python}
+# Recreate plot
+from plotnine import * 
+import numpy as np
+
+(
+    ggplot(q1_2010, aes(x="income", y="life_exp"))
+    + geom_point(
+        aes(size="population", color="world_bank_region"),alpha = 0.7)
+    + scale_size(range=(2,10))
+    + scale_x_log10(
+    limits=(500, 64000),
+    breaks=[500, 1000, 2000, 4000, 8000, 16000, 32000, 64000],
+    labels=lambda v: [f"{int(round(x))}" if x < 1000 else f"{int(round(x/1000))}k" for x in v]
+    )
+    + scale_y_continuous(
+        limits=(20, 90), 
+        breaks=range(20, 91, 10)
+    )
+    + labs(
+        x="Income",
+        y="Life expectancy",
+        color="World Bank Region")
+    + theme(
+        panel_background=element_rect(fill="white", color=None),   # white background
+        panel_grid_major=element_line(color="lightgrey", size=0.5), # grey major grid lines
+        axis_line=element_line(color="black")
+    )
+    
+    # Vertical divider lines for income thresholds
+    + geom_vline(xintercept=[1000, 4000, 16000], linetype="dashed", color="grey")
+    
+    # Labels above the dividers
+    + annotate("text", x=600, y=90, label="Level 1", ha="center")
+    + annotate("text", x=2100, y=90, label="Level 2", ha="center")
+    + annotate("text", x=7900, y=90, label="Level 3", ha="center")
+    + annotate("text", x=31900, y=90, label="Level 4", ha="center")
+)
+```
+
+## 4. Bar Chart Geometry
+
+I created a bar chart which shows the average income by region using the data, this is a broad overview and is not as focused as the bubble chart, however it compares each region more clearly.
+
+```{python}
+# Create new chart
+from plotnine import * 
+import numpy as np
+
+income_avg = (
+    q1_2010
+    .dropna(subset=["world_bank_region"])
+    .groupby("world_bank_region", as_index=False)["income"].mean()
+)
+
+(
+    ggplot(income_avg, aes(x="world_bank_region",y="income",fill="world_bank_region"))
+    + geom_col()
+    +coord_flip()
+    +labs(x="World Bank Region", y="Average Income", title = "Average Income by Region")
+    +theme_light()
+)
+```
+
+# Task 2
+
+## 1. Identify aesthics
+This chart displays the exports on the x-axis to imports on the y as a percent of GDP by world region with the data being set to 1997. This visualization is not using a log scale for the x axis. Energy use is the bubble size.
+
+## 2. Import data
+
+```{python}
+# loading csv
+q2 = pd.read_csv("C:/Users/jonat/Documents/Calpoly MSBA/Fall/Machine Learning 544/Data/q2data.csv")
+```
+
+```{python}
+q2
+```
+```{python}
+#look at data types
+q2.dtypes
+```
+
+## 3. Recreate Plot
+
+```{python}
+# filter to 1997
+q2_1997 = q2.query("year == 1997")
+q2_1997
+```
+
+
+```{python}
+# recreate plot
+
+q2_1997["energy"]=pd.to_numeric(q2_1997["energy"], errors="coerce")
+
+(
+ggplot(q2_1997, aes(x="exports", y="imports"))
+
++ geom_point(aes(size="energy",fill="world_bank_region"),
+    color="black",
+    stroke=0.2,
+    alpha=.8,
+)
++ scale_size(range=(1,15))
++ labs(x="Exports (% of GDP)", y="Imports (% of GDP)", color="World Bank Region")
++ scale_x_continuous(
+        limits=(20, 220), 
+        breaks=range(20, 221, 20)
+)
++ scale_y_continuous(
+        limits=(50, 400), 
+        breaks=range(50, 401, 50)
+)
+
++ theme(
+        panel_background=element_rect(fill="white", color=None),   # white background
+        panel_grid_major=element_line(color="lightgrey", size=0.5), # grey major grid lines
+)
+)
+```
+
+## 4. 2D Heatmap
+
+Using geom_bin I created a 2D histogram heatmap showing Exports vs Imports which can quickly show where countries cluster in tke Exports/Imports plane and is able to reduce the overalpping of bubbles. However it doesn't show the country region like the bubble plot.
+
+```{python}
+from plotnine import *
+(
+    ggplot(q2_1997,aes(x="exports", y="imports"))
+    + geom_bin2d(bins=25)
+    + scale_fill_continuous(name="Count")
+    + labs(x="Exports (% of GDP)", y="Imports (% of GDP)",
+        title="2D Binned Density of Countries")
+    
+    + theme(
+        panel_background=element_rect(fill="white", color=None),   # white background
+        panel_grid_major=element_line(color="lightgrey", size=0.5), # grey major grid lines
+)
+)
+
+```
+
+# Task 3
+
+## 1. Identify aesthetics
+This chart displays the Indivdiuals using the internet on the x axis as a percent of population to the GDP per capital on the y axis for all countries in 2001. It seems there is log scaling on the y axis to make the GDP go from 200 to 100k. The bubbles size are based on income.
+
+## 2. Import data
+
+```{python}
+# loading csv
+q3 = pd.read_csv("C:/Users/jonat/Documents/Calpoly MSBA/Fall/Machine Learning 544/Data/q3data.csv")
+```
+
+```{python}
+q3
+```
+```{python}
+#look at data types
+q3.dtypes
+```
+
+## 3. Recreate Plot
+
+```{python}
+# filter to 2001
+q3_2001 = q3.query("year == 2001")
+q3_2001
+```
+
+
+```{python}
+# recreate plot
+
+(
+ggplot(q3_2001, aes(x="internet_users", y="gdp"))
+
++ geom_point(aes(size="income",fill="world_bank_region"),
+    color="black",
+    stroke=0.2,
+    alpha=.8,
+)
++ scale_size(range=(1,15))
++ labs(x="Individuals using the Internet", y="GDP/capita", color="World Bank Region")
++ scale_x_continuous(
+        limits=(0, 90), 
+        breaks=range(0, 91, 10)
+)
++ scale_y_log10(
+        limits=(200, 100000),
+    breaks=[200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000],
+    labels=lambda v: [f"{int(round(x))}" if x < 1000 else f"{int(round(x/1000))}k" for x in v]
+)
+
++ theme(
+        panel_background=element_rect(fill="white", color=None),   # white background
+        panel_grid_major=element_line(color="lightgrey", size=0.5), # grey major grid lines
+         axis_line=element_line(color="black")
+)
+)
+```
+
+## 4. Stacked Area Chart
+
+Using geom_area I created a stack area chart that shows the internet users arranged into bins by the number of countries to show each region's individuals using the internet at different bin sizes. It’s a poor fit because stacked areas imply a continuous trend between discrete bins, and the stacking hides comparisons—only the bottom region has a common baseline, so middle/top regions are hard to read.
+
+```{python}
+q = q3_2001.copy()
+q["internet_users"] = pd.to_numeric(q["internet_users"], errors="coerce")
+q["world_bank_region"] = q["world_bank_region"].fillna("Unknown")
+q = q[(q["internet_users"] >= 0) & (q["internet_users"] <= 100)]
+
+bins   =  [0, 5, 10, 20, 40, 100]
+labels = ["0–5%", "5–10%", "10–20%", "20–40%", "40–100%"]
+q["internet_bin"] = pd.cut(q["internet_users"], bins=bins, labels=labels,
+                           include_lowest=True, right=True)
+q["internet_bin"] = q["internet_bin"].cat.add_categories(["No data"])
+q.loc[q["internet_bin"].isna(), "internet_bin"] = "No data"
+
+counts = (q.groupby(["internet_bin", "world_bank_region"], dropna=False)
+            .size()
+            .reset_index(name="n"))
+
+counts["internet_bin"] = pd.Categorical(counts["internet_bin"],
+                                        ["0–5%", "5–10%", "10–20%", "20–40%", "40–100%", "No data"],
+                                        ordered=True)
+
+(
+    ggplot(counts, aes("internet_bin", "n", fill="world_bank_region",
+                       group="world_bank_region"))
+    + geom_area(position="stack", alpha=0.85)
+    + labs(x="Individuals using the Internet (%)", y="Number of countries",
+           fill="World Bank Region",
+           title="Countries by Internet-use bins (stacked by region)")
+    + theme(axis_text_x=element_text(rotation=45, ha="right"))
+)
+
+```
