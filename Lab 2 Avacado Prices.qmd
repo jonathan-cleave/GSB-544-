@@ -1,0 +1,399 @@
+---
+title: "Lab 2 Avacado Prices"
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+Github Repository: <https://github.com/jonathan-cleave/GSB-544-.git>
+
+# 0. Importing Data
+
+```{python}
+import numpy as np
+import plotnine
+import pandas as pd
+from plotnine import ggplot, aes, geom_boxplot,geom_jitter,labs,geom_bar, position_stack, scale_fill_brewer, scale_y_continuous, element_text, geom_col, facet_wrap, theme, scale_fill_manual, scale_x_continuous
+
+```
+
+```{python}
+df = pd.read_csv("C:/Users/jonat/Documents/Calpoly MSBA/Fall/Machine Learning 544/Data/avocado-updated-2020.csv")
+
+df.head()
+```
+
+```{python}
+df.dtypes
+df["geography"].unique()
+```
+
+# 1. Data Description
+The avacado prices dataset includes the date, average price in $, total volumne of avacados, total bags and different types. Along with the type of avacado and where from. Some columns are categorical like geography and type, while most are numerical like avg price, bag numbers. Other less well known varaibles are 4046, 4225, 4770 which are numeric and represent the total number of avacados based on size values of PLU
+
+# 2. Data Cleaning
+
+```{python}
+df_clean = df
+df_clean.dropna()
+df_clean.isna()
+```
+
+```{python}
+# changing names for PLU
+df.rename(columns={'4046': "size_small", '4225': "size_large", "4770": 'size_xlarge'},inplace=True)
+
+df_clean.head(5)
+```
+
+```{python}
+df_clean["geography"].value_counts()
+
+```
+
+```{python}
+# Creating major_regions
+
+major_regions = {
+    # Northeast
+    'New York': 'Northeast',
+    'Boston': 'Northeast',
+    'Philadelphia': 'Northeast',
+    'Hartford/Springfield': 'Northeast',
+    'Buffalo/Rochester': 'Northeast',
+    'Albany': 'Northeast',
+    'Syracuse': 'Northeast',
+    'Harrisburg/Scranton': 'Northeast',
+    'Baltimore/Washington': 'Northeast',
+    "Northen New England": "Northeast",
+    "Northeast": "Northeast",
+
+    # West
+    'Los Angeles': 'West',
+    'San Diego': 'West',
+    'San Francisco': 'West',
+    'Sacramento': 'West',
+    'Portland': 'West',
+    'Seattle': 'West',
+    'Spokane': 'West',
+    'Boise': 'West',
+    'West Tex/New Mexico': 'West',
+    'Las Vegas': 'West',
+    'Phoenix/Tucson': 'West',
+    'Denver': 'West',
+    'California': 'West',
+    'West': 'West',
+
+    # Southeast
+    'Miami/Ft. Lauderdale': 'Southeast',
+    'Tampa': 'Southeast',
+    'Orlando': 'Southeast',
+    'Jacksonville': 'Southeast',
+    'Atlanta': 'Southeast',
+    'South Carolina': 'Southeast',
+    'Raleigh/Greensboro': 'Southeast',
+    'Charlotte': 'Southeast',
+    'Richmond/Norfolk': 'Southeast',
+    'Roanoke': 'Southeast',
+    'Nashville': 'Southeast',
+    'Louisville': 'Southeast',
+    'New Orleans/Mobile': 'Southeast',
+    'Southeast': 'Southeast',
+
+    # South Central
+    'Dallas/Ft. Worth': 'South Central',
+    'Houston': 'South Central',
+    'South Central': 'South Central',
+    'New Orleans/Mobile': "South Central",
+    "Midsouth": "South Central",
+
+    # Great Lakes
+    'Chicago': 'Great Lakes',
+    'Detroit': 'Great Lakes',
+    'Grand Rapids': 'Great Lakes',
+    'Cincinnati/Dayton': 'Great Lakes',
+    'Columbus': 'Great Lakes',
+    'Cleveland': 'Great Lakes' if 'Cleveland' in df['geography'].unique() else None,
+    'Indianapolis': 'Great Lakes',
+    'Great Lakes': 'Great Lakes',
+
+    # Plains
+    'St. Louis': 'Plains',
+    'Plains': 'Plains',
+
+}
+
+df_clean['major_regions'] = df_clean['geography'].map(major_regions)
+df_clean.head(5)
+```
+
+```{python}
+# metro regions
+
+metro_regions = [
+    'Albany','Atlanta','Baltimore/Washington','Boise','Boston','Buffalo/Rochester',
+    'Charlotte','Chicago','Cincinnati/Dayton','Columbus','Dallas/Ft. Worth','Denver',
+    'Detroit','Grand Rapids','Harrisburg/Scranton','Hartford/Springfield','Houston',
+    'Indianapolis','Jacksonville','Las Vegas','Los Angeles','Louisville',
+    'Miami/Ft. Lauderdale','Nashville','New Orleans/Mobile','New York','Orlando',
+    'Philadelphia','Phoenix/Tucson','Pittsburgh','Portland','Raleigh/Greensboro',
+    'Richmond/Norfolk','Roanoke','Sacramento','San Diego','San Francisco','Seattle',
+    'Spokane','St. Louis','Syracuse','Tampa'
+]
+
+df_clean['metro_regions'] = df_clean['geography'].apply(lambda g: g if g in metro_regions else np.nan)
+
+df_clean.reset_index()
+df_clean
+```
+
+
+# 3. Most by Region
+```{python}
+df_3 = df_clean
+
+# Filter Size, Year and Type
+df_3 = df_3[(df_3["year"] == 2017) & (df_3["type"] =="organic")]
+df_3
+
+df_3 = df_3[["size_small","major_regions"]]
+
+pd.set_option('display.float_format','{:.2f}'.format)
+df_3 = df_3.groupby('major_regions')["size_small"].sum()
+df_3 = df_3.sort_values(ascending=False).apply(lambda x: f"{x:,.2f}")
+
+df_3
+```
+
+West sold the most organic, small Hass avacados in 2017 with 5,826,061. This region includes California regions. (However based on different region grouping this number would change.)
+
+# 4. Most by Month
+```{python}
+df_4 = df_clean
+
+df['date'] =pd.to_datetime(df_4['date'])
+
+df_4['month'] = df.date.dt.strftime("%b")
+df_4['day'] = df_4['date'].dt.day
+
+```
+
+```{python}
+pd.set_option('display.float_format','{:.2f}'.format)
+df_4 = df_4.groupby("month",sort=False)["total_volume"].mean()
+df_4 = df_4.apply(lambda x: f"{x:,.2f}")
+df_4
+```
+
+The month of May has the highest average volume of avacado sales with 1,123,632. 
+
+# 5. Plot by Region
+```{python}
+df_5 = df_clean
+
+pd.set_option('display.float_format','{:.2f}'.format)
+
+top_5 = (df_5.groupby("metro_regions")["total_volume"].mean()).sort_values(ascending=False).head(5).index
+
+df_top5 = df_5[df_5["metro_regions"].isin(top_5)]
+
+(
+ggplot(df_top5,aes(x="metro_regions",y="total_volume"))
++ geom_boxplot(outlier_shape=None,fill="lightblue",alpha=0.6)
++ geom_jitter(width=0.2,alpha=0.4,size=1)
++ labs(title="Top 5 Metro Regions by Average Total Avocado Volume",
+        x="Metro Region",
+        y="Average Volume"
+    )
+)
+```
+
+Based on the boxplot graph, Los angleles had the highest average volume, but also the largest range of values with a large amount of outliers shifting quartile 3 up.
+
+# 6. CA Dataset
+
+```{python}
+df_ca = df_clean
+
+ca_regions = [
+"Los Angeles", "San Diego", "Sacramento", "San Francisco"
+]
+
+df_ca['california_regions'] = df_clean['geography'].apply(lambda g: g if g in ca_regions else np.nan)
+
+df_ca = df_ca[df_ca["california_regions"].notna()]
+
+df_ca["california_regions"].unique()
+
+df_ca = df_ca.reset_index()
+
+df_ca
+```
+
+# 7. Organic vs. Conventional
+
+```{python}
+df_7 = df_ca
+
+price = df_7.groupby(["california_regions","type"])["average_price"].mean().reset_index()
+
+price_diff = price.pivot(index="california_regions",columns="type",values="average_price")
+
+price_diff["diff"]=price_diff["organic"] - price_diff["conventional"]
+price_diff = price_diff.sort_values("diff", ascending=False)
+
+price_diff
+
+```
+
+The largerest difference in price of organic vs conventional avacados was in San Francisco with the average difference being 0.72 cents. Los Angeles had the lowest difference as well as the largest average volume. San Francisco has the highest average organic price of $2.12 meaning San Francisco has the highest premiumn on organic avacados.
+
+```{python}
+import pandas as pd
+from plotnine import *
+
+
+pdf = price_diff.reset_index() 
+order = list(pdf.sort_values('diff', ascending=False)['california_regions'])
+pdf['california_regions'] = pd.Categorical(pdf['california_regions'], categories=order, ordered=True)
+
+long = pdf.melt(id_vars=['california_regions','diff'],
+                value_vars=['conventional','organic'],
+                var_name='type', value_name='avg_price')
+
+
+(
+    ggplot()
+    + geom_segment(
+        data=pdf,
+        mapping=aes(y='california_regions', yend='california_regions',
+                    x='conventional', xend='organic'),
+        size=1, alpha=0.6
+    )
+    + geom_point(
+        data=long,
+        mapping=aes(y='california_regions', x='avg_price', color='type'),
+        size=2.8
+    )
+    + labs(title='Organic vs Conventional Average Price by CA Region',
+           x='Average Price (USD)', y='', color='Type')
+    + theme(axis_text_y=element_text())
+)
+
+
+```
+
+The lolipop chart shows the difference between conventional and organic by CA region where the largest distance between lolipops shows the highest difference being San Francisco. 
+
+# 8. Recreate Plot
+```{python}
+
+df_8 = df_ca
+
+size = df_8.groupby(['california_regions','type'], as_index=False)[
+    ["size_xlarge","size_large","size_small"]
+].mean()
+
+long = size.melt(
+    id_vars=["california_regions","type"],
+    value_vars=["size_small","size_large","size_xlarge"],
+    var_name="size", value_name="avg_sales"
+)
+
+order = ["size_xlarge","size_large","size_small"]
+long["size"] = pd.Categorical(long["size"], categories=order, ordered=True)
+
+(
+    ggplot(long, aes(x='california_regions', y='avg_sales', fill='size'))
+    + geom_col(position='fill')
+    + facet_wrap('~type')
+    + scale_y_continuous(labels=lambda v: [f'{x:.0%}' for x in v])
+    + scale_fill_manual(
+        values={
+            "size_small":  "#E6550D",  
+            "size_large":  "#31A354",  
+            "size_xlarge": "#756BB1"
+        },
+        limits=order,      
+        labels=["xlarge","large","small"]
+    )
+    + labs(
+        title='Proportion of Average Hass Avocado Sales by Size',
+        x='Region of California',
+        y='Proportion',
+        fill='Size'
+    )
+    + theme(axis_text_x=element_text(rotation=45, ha='right'))
+)
+```
+
+## Avocados and House Prices
+
+```{python}
+# Housing data from zillow
+house = pd.read_csv("C:/Users/jonat/Documents/Calpoly MSBA/Fall/Machine Learning 544/Data/housing.csv")
+
+#rename
+house.rename(columns={'RegionID': "region_id", 'RegionName': "region_name", "Value": 'house_value'}, inplace=True)
+house
+
+house = house.melt(
+    id_vars=["region_id", "region_name"],
+    var_name="date",
+    value_name="house_value"
+)
+
+
+# Convert Date column to datetime
+house["date"] = pd.to_datetime(house["date"], errors="coerce")
+
+# remove misc rows
+house = house.dropna()
+
+regions = [
+    "Los Angeles",
+    "San Francisco",
+    "San Diego",
+    "Sacramento"
+]
+
+house = house[house["region_name"].isin(regions)]
+
+
+# remove na
+house = house.dropna()
+
+# reset index
+house = house.reset_index()
+
+# change type
+house["house_value"] = house["house_value"].astype("float")
+house.dtypes
+house
+```
+
+
+```{python}
+#Adding housing to CA
+
+combine = pd.merge(df_ca,house,how="inner", left_on=["date","california_regions"],right_on=["date","region_name"])
+
+combine = combine[["date","california_regions","type","total_volume","average_price","house_value"]]
+
+combine.head()
+```
+
+Avacado prices should be higher as house value increases. This is because areas with higher house prices are expected to pay more for groceries. 
+
+```{python}
+# Box Plot
+(
+ggplot(combine, aes(x='house_value', y='average_price', fill='california_regions'))
+ + geom_boxplot(aes(x="house_value",y="average_price"))
+ + labs(x="House Price", y="Average Avacado Price", title="Average Avacado Price to House Price")
+)
+
+```
+
+The boxplots show that average avacado price does not quite follow our expected postive linear relationship. Sacramento has the lowest housing price but average avacado price goes down around 500k house price. The avacado price then jumps up with a large difference in house prices of 1.25 million. The relationship is hard to make a definite association between house price and avacado price. It seems that Avacado price decreases for for houses 250k to 500k then increases afterward. This could represent a large gap in pricing for lower class vs upper class pricing.
