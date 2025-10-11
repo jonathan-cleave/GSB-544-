@@ -1,0 +1,264 @@
+---
+title: "Lab 3 Singing a Song"
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+Github Repository: <https://github.com/jonathan-cleave/GSB-544-.git>
+
+```{python}
+import pandas as pd
+xmas = pd.read_csv("https://www.dropbox.com/scl/fi/qxaslqqp5p08i1650rpc4/xmas.csv?rlkey=erdxi7jbh7pqf9fh4lv4cayp5&dl=1")
+```
+
+```{python}
+xmas
+```
+
+
+## Function 1: pluralize_gift()
+```{python}
+def pluralize_gift(gift):
+  """
+  Returns plural of a noun
+  
+  Parameters
+  ----------
+  gift: str
+    A noun
+    
+  Return
+  ------
+  str
+    Plural version
+  """
+  exceptions = ["partridge"]
+
+  if gift in exceptions:
+    return gift
+
+  if "oo" in gift:
+    gift = gift.replace("oo", "ee")
+  elif gift.endswith("y"):
+    gift = gift = gift[:-1] + "ies"
+  else:
+    gift = gift=gift + "s"
+
+  return gift
+
+xmas["Plural.Gift"] = xmas["Gift.Item"].apply(pluralize_gift)
+
+```
+
+```{python}
+pluralize_gift("goose")
+```
+
+```{python}
+# Creating amount
+amount = {
+  1:"one",
+  2:"two",
+  3:"three",
+  4:"four",
+  5:"five",
+  6:"six",
+  7:"seven",
+  8:"eight",
+  9:"nine",
+  10:"ten",
+  11:"eleven",
+  12:"twelve",
+}
+
+xmas["Amount"] = xmas["Day"].map(amount)
+
+#moving column over
+xmas.insert(2,"Amount",xmas.pop("Amount"))
+xmas
+```
+
+## Function 2: make_phrase()
+```{python}
+def make_phrase(amount, gift, verb, adjective, location):
+
+  """
+  Constructs a single gift phrase for a given day of "The Twelve Days of Christmas".
+    
+  Parameters
+  ----------
+  amount : str
+      The quantity or determiner for the gift (e.g., "five", "a", "an", "one").
+  gift : str
+      The name of the gift item (e.g., "lord", "turtle dove").
+  verb : str, optional
+      An optional action associated with the gift (e.g., "a-leaping", "a-singing").
+  adjective : str, optional
+      An optional descriptive word for the gift (e.g., "French").
+  location : str, optional
+      An optional location or phrase describing where the gift is (e.g., "in a pear tree").
+
+  Returns
+  -------
+  str
+      A grammatically correct, fully constructed phrase describing the gift for that day,
+      with proper pluralization and article ("a" / "an") handling.
+
+  Notes
+  -----
+  - Automatically pluralizes the `gift` if `amount` is not "one", "a", or "an".
+  - Automatically changes "a" to "an" when the gift begins with a vowel sound.
+  - Skips empty or missing (`None`) words when constructing the final phrase.
+    
+  Example
+  -------
+  >>> make_phrase(amount="five", gift="lord", verb="a-leaping", adjective="", location="")
+  'five lords a-leaping'
+  """
+  
+  ## Step 1: Replace NAs with blank strings
+  verb = verb or ""
+  adjective = adjective or ""
+  location = location or ""
+  
+  ## Step 2: If the day number is larger than 1, the gift items need pluralized!
+    ### Hint: call the function you created above!
+
+  if amount not in ["one","a", "an"]:
+    gift = pluralize_gift(gift)
+
+  ## Step 3: Figure out if a gift item starts with a vowel
+  if amount in ["one","a","an"]:
+    if gift[0].lower() in "aeiou":
+      amount = "an"
+    else:
+      amount = "a"
+  
+  ## Step 5: Put all of the pieces together into one string and return!
+  make_phrase = " ".join([word for word in [amount, adjective, gift, verb, location] if word]).strip()
+
+
+  return make_phrase
+
+make_phrase(amount="ten", gift = "lord", verb = "a-leaping" , adjective = "", location = "")
+
+```
+
+```{python}
+def fullPhrase(df: pd.DataFrame,*,amount_col="Amount",gift_col="Gift.Item",verb_col="Verb",adj_col="Adjective",loc_col="Location",out_col="Full.Phrase",):
+  """
+  Create a full gift phrase column for each row in the dataset.
+
+  Combines amount, gift, verb, adjective, and location columns into a single
+  grammatically correct phrase (e.g., "five lords a-leaping" or
+  "a partridge in a pear tree").
+
+  Parameters
+  ----------
+  df : pd.DataFrame
+      Input DataFrame.
+  amount_col, gift_col, verb_col, adj_col, loc_col : str
+      Column names for phrase components.
+  out_col : str
+      Name of the new output column.
+
+  Returns
+  -------
+  pd.DataFrame
+      DataFrame with an added column `out_col` containing full phrases.
+
+  Notes
+  -----
+  - Calls `make_phrase()` for each row.
+  - Missing text fields are replaced with blanks.
+  """
+  # fill missing optional columns
+  df = df.assign(
+      **{
+          verb_col: df.get(verb_col, "").fillna("").astype(str),
+          adj_col:  df.get(adj_col, "").fillna("").astype(str),
+          loc_col:  df.get(loc_col, "").fillna("").astype(str),
+        }
+    )
+
+  # build the new column
+  df[out_col] = df.apply(lambda r: make_phrase(r[amount_col],r[gift_col],r[verb_col],r[adj_col],r[loc_col],),axis=1,)
+
+  return df
+
+```
+
+```{python}
+fullPhrase(xmas)
+```
+
+## Function 3 sing_day()
+```{python}
+def sing_day(dataset, num, phrase_col):
+  """
+  Sing one day of 'The Twelve Days of Christmas'.
+
+  dataset: DataFrame containing columns:
+    - 'Day' (int)
+    - 'Day.in.Words' (str)
+    - phrase_col (e.g. 'Full.Phrase')
+  num: integer day number to sing (1–12)
+  phrase_col: column name containing gift phrases
+  """
+  dataset = fullPhrase(dataset)
+
+  # Ensure Day column is numeric to allow comparisons
+  dataset["Day"] = pd.to_numeric(dataset["Day"], errors="raise").astype(int)
+
+  # Check that the requested day exists
+  if num not in dataset["Day"].values:
+      raise ValueError(f"Day {num} not found in dataset.")
+
+  # Step 1: Build intro line
+  num_word = dataset.loc[dataset["Day"] == num, "Day.in.Words"].iloc[0]
+  intro = f"On the {num_word} day of Christmas, my true love sent to me:"
+
+  # Step 2: Gather all gifts up to this day (reverse order)
+  gifts = (
+    dataset.loc[dataset["Day"] <= num, ["Day", phrase_col]]
+      .sort_values("Day", ascending=False)[phrase_col]
+      .tolist()
+  )
+
+  # Step 3: Add "and" before the final gift if day > 1
+  if num > 1:
+      gifts[-1] = "and " + gifts[-1]
+
+  for i in range(len(gifts) - 1):
+        gifts[i] = gifts[i].rstrip(".") + ","
+
+  # Step 4: Combine and return
+  verse = "\n".join(gifts)
+  return f"{intro}\n{verse}."
+```
+
+
+```{python}
+print(sing_day(xmas,3,"Full.Phrase"))
+```
+
+## Full Song
+```{python}
+print(sing_day(xmas,12,"Full.Phrase"))
+```
+
+
+```{python}
+xmas2 = pd.read_csv("https://www.dropbox.com/scl/fi/p9x9k8xwuzs9rhp582vfy/xmas_2.csv?rlkey=kvc3j3lmyn4opcidsrhcmrof1&dl=1")
+xmas2
+```
+
+
+```{python}
+xmas2["Plural.Gift"] = xmas2["Gift.Item"].apply(pluralize_gift)
+xmas2["Amount"] = xmas2["Day"].map(amount)
+fullPhrase(xmas2)
+print(sing_day(xmas2,12,"Full.Phrase"))
+```
