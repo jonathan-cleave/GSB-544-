@@ -1,0 +1,241 @@
+---
+title: "Lab 4 Data is Delicious"
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+```{python}
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+from plotnine import ggplot, geom_point, aes, geom_col,labs,scale_fill_manual, scale_x_discrete,scale_y_continuous
+import json
+from pandas.api.types import CategoricalDtype
+from mizani.formatters import percent_format
+import re
+```
+
+## 1. Data from Unstructured Websites
+
+Chose Meal Plan 197.
+```{python}
+URL = ("https://tastesbetterfromscratch.com/meal-plan-197/")
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+response = requests.get(URL,headers=HEADERS)
+
+soup = BeautifulSoup(response.text, "html.parser")
+```
+
+```{python}
+meals = []
+for p in soup.find_all("p", class_="has-text-align-left"):
+    day_tag = p.find("strong")
+    link_tag = p.find("a")
+
+    if day_tag and link_tag:
+        day = day_tag.get_text(strip=True)
+        day = re.sub(r"[:：\s]+$", "", day.strip())
+        meal=link_tag.get_text(strip=True)
+        link=link_tag["href"]
+        text=p.get_text(" ", strip=True)
+        price = text.split("$")[-1] if "$" in text else None
+        
+        meals.append({
+                      "Day of the Week": day,
+                      "Name of Recipe": meal,
+                      "Link to Recipe": link,
+                      "Price of Recipe": f"${price}" if price else None})
+
+df = pd.DataFrame(meals)
+df
+
+```
+
+## 2. Data from an API
+
+Compiling list of recipes based on Fettuccine Alfredo.
+```{python}
+url = "https://tasty.p.rapidapi.com/recipes/list"
+
+querystring = {"from":"0","size":"100","q":"Fettuccine Alfredo"}
+
+headers = {
+	"x-rapidapi-key": "99a02f0a23msh9fe9d81e79ba9bdp1c8d03jsn66e2631d5886",
+	"x-rapidapi-host": "tasty.p.rapidapi.com"
+}
+
+request = requests.get(url, headers=headers, params=querystring)
+```
+
+```{python}
+data = request.json()
+
+recipes = data.get("results", [0])
+```
+
+```{python}
+table = []
+for recipe in recipes:
+    table.append({
+        "Name": recipe.get("name"),
+        "Description": recipe.get("description"),
+        "Rating": recipe.get("user_ratings", {}).get("score"),
+        "Cook Time (mins)": recipe.get("total_time_minutes"),
+        "Recipe URL": f"https://tasty.co/recipe/{recipe.get('slug')}" if recipe.get("slug") else None
+    })
+
+df = pd.DataFrame(table)
+df
+```
+
+## 3. Automate it
+
+```{python}
+def get_mealplan_data(meal_num):
+    URL = f"https://tastesbetterfromscratch.com/meal-plan-{meal_num}/"
+    HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+    response = requests.get(URL, headers=HEADERS)
+    soup = BeautifulSoup(response.text, "htmlparser" if False else "html.parser")
+
+    meals = []
+    for p in soup.find_all("p", class_="has-text-align-left"):
+        day_tag = p.find("strong")
+        link_tag = p.find("a")
+        if day_tag and link_tag:
+            day = day_tag.get_text(strip=True).replace(":","")
+            meal = link_tag.get_text(strip=True)
+            link = link_tag["href"]
+            text = p.get_text(" ", strip=True)
+            price = text.split("$")[-1] if "$" in text else None
+            meals.append({
+                "Day of the Week": day,
+                "Name of Recipe": meal,
+                "Link to Recipe": link,
+                "Price of Recipe": f"${price}" if price else None
+            })
+
+    df_week = pd.DataFrame(meals)
+
+    url = "https://tasty.p.rapidapi.com/recipes/list"
+    headers = {
+        "x-rapidapi-key": "99a02f0a23msh9fe9d81e79ba9bdp1c8d03jsn66e2631d5886",
+        "x-rapidapi-host": "tasty.p.rapidapi.com"
+    }
+
+    table = []
+
+    for day, row in df_week.iterrows():
+        meal_name = row["Name of Recipe"]
+        day = row["Day of the Week"]
+
+
+        querystring = {"from": "0", "size": "100", "q": meal_name}
+        request = requests.get(url, headers=headers, params=querystring)
+        data = request.json()
+
+        recipes = data.get("results", [])
+
+        for recipe in recipes:
+            table.append({
+                "Queried Name": meal_name,
+                "Name Found": recipe.get("name"),
+                "Day": day,
+                "Description": recipe.get("description"),
+                "Rating": (recipe.get("user_ratings") or {}).get("score"),
+                "Cook Time": recipe.get("total_time_minutes"),
+                "Recipe URL": (
+                    f"https://tasty.co/recipe/{recipe.get('slug')}"
+                    if recipe.get("slug") else None),
+                "Number of Servings": recipe.get("num_servings"),
+                "Nutrition": recipe.get("nutrition")
+            })
+
+    df = pd.DataFrame(table)
+
+    df = df.merge(df_week[["Name of Recipe", "Day of the Week"]], left_on="Queried Name", right_on="Name of Recipe", how="left")
+    df.drop(columns=["Name of Recipe","Day of the Week"], inplace=True)
+
+    nutrition_df = df["Nutrition"].apply(pd.Series)
+    df = pd.concat([df.drop(columns=["Nutrition"]), nutrition_df], axis=1)
+    df = df.drop(columns=["updated_at"], errors='ignore')
+    return df
+
+```
+
+```{python}
+df = get_mealplan_data(202)
+df.head()
+```
+
+## 4. Add column with fuzzy matching
+
+```{python}
+meats = ["chicken", "beef","pork","fish","shrimp","bacon","turkey","sausage","lamb","steak","salmon","ham","meatball","duck","tuna"]
+
+df["Vegetarian"] = df["Name Found"].str.lower().str.contains("|".join(meats),na=False)
+df["Vegetarian"] = df["Vegetarian"].map({True: "Yes", False: "No"})
+
+df.head()
+```
+
+## 6. Analyze
+```{python}
+order = ["Monday","Tuesday","Wednesday","Thursday","Friday"]
+
+avg_df = (df.groupby(["Day", "Vegetarian"], as_index=False)
+      .agg({"calories": "mean"}))
+
+day_type = CategoricalDtype(categories=order, ordered=True)
+avg_df["Day"] = avg_df["Day"].astype(day_type)
+avg_df = avg_df.sort_values("Day",ascending=True)
+
+avg_df = (df.groupby(["Day", "Vegetarian"], as_index=False)
+      .agg({"calories": "mean"}))
+
+(
+    ggplot(avg_df, aes(x="Day", y="calories", fill="Vegetarian"))
+    + geom_col(position="dodge")
+    + scale_fill_manual(values=["#E53935", "#4CAF50"])
+    + scale_x_discrete(limits=order)
+    + labs(
+        title="Average Calories by Day and Vegetarian Status for Meal 202",
+        x="Day of the Week",
+        y="Average Calories"
+    )
+)
+```
+
+Side by Side column chart shwoing the Average Calories observed by Day for both vegetarian and non vegetarian meals.
+
+```{python}
+nutr_cols = ["carbohydrates", "fat", "sugar", "protein", "fiber"]
+
+df2 = df.copy()
+
+df2[nutr_cols] = df2[nutr_cols].apply(pd.to_numeric, errors="coerce")
+df2["Day"] = df2["Day"].astype(CategoricalDtype(categories=order, ordered=True))
+
+day_totals = (
+    df2.groupby("Day", as_index=False,observed=False)[nutr_cols]
+      .sum(numeric_only=True)
+)
+
+
+day_totals = (day_totals.set_index("Day").reindex(order).fillna(0).reset_index())
+
+long = day_totals.melt(id_vars="Day", value_vars=nutr_cols, var_name="Nutrient", value_name="grams")
+
+(
+    ggplot(long, aes(x="Day", y="grams", fill="Nutrient"))
+    + geom_col(position="fill")
+    + scale_y_continuous(labels=percent_format())
+    + labs(title="Macronutrient Makeup by Day for Meal 202", x="Day of the Week", y="Percent")
+    + scale_x_discrete(limits=order)
+)
+```
+
+Stacked Column Chart showing the macronutrient makeup of each day.
