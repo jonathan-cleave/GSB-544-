@@ -74,6 +74,7 @@ request = requests.get(url, headers=headers, params=querystring)
 data = request.json()
 
 recipes = data.get("results", [0])
+
 ```
 
 ```{python}
@@ -84,7 +85,7 @@ for recipe in recipes:
         "Description": recipe.get("description"),
         "Rating": recipe.get("user_ratings", {}).get("score"),
         "Cook Time (mins)": recipe.get("total_time_minutes"),
-        "Recipe URL": f"https://tasty.co/recipe/{recipe.get('slug')}" if recipe.get("slug") else None
+        "Recipe URL": f"https://tasty.co/recipe/{recipe.get('slug')}" if recipe.get("slug") else None,
     })
 
 df = pd.DataFrame(table)
@@ -131,6 +132,7 @@ def get_mealplan_data(meal_num):
     for day, row in df_week.iterrows():
         meal_name = row["Name of Recipe"]
         day = row["Day of the Week"]
+        price = row["Price of Recipe"]
 
 
         querystring = {"from": "0", "size": "100", "q": meal_name}
@@ -151,7 +153,8 @@ def get_mealplan_data(meal_num):
                     f"https://tasty.co/recipe/{recipe.get('slug')}"
                     if recipe.get("slug") else None),
                 "Number of Servings": recipe.get("num_servings"),
-                "Nutrition": recipe.get("nutrition")
+                "Nutrition": recipe.get("nutrition"),
+                "Price": price
             })
 
     df = pd.DataFrame(table)
