@@ -1,0 +1,148 @@
+---
+title: "Practice Activity 6.1"
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+Import the Palmer Penguins dataset and print out the first few rows.
+
+Suppose we want to predict `bill_depth_mm` using the other variables in the dataset.
+
+Which variables would we need to **dummify**?
+
+```{python}
+import pandas as pd
+import numpy as np
+from palmerpenguins import load_penguins
+from plotnine import ggplot, geom_point, aes, geom_line
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+```
+
+```{python}
+df = load_penguins()
+df.head()
+```
+
+```{python}
+df = pd.get_dummies(df, columns=['species', 'island', 'sex'], drop_first=True)
+df = df.dropna()
+df
+df.isna().sum()
+```
+
+```{python}
+df.plot.scatter(x="bill_length_mm", y="bill_depth_mm")
+```
+
+Let's use `bill_length_mm` to predict `bill_depth_mm`. Prepare your data and fit the following models on the entire dataset:
+
+* Simple linear regression (e.g. straight-line) model
+* Quadratic (degree 2 polynomial) model
+* Cubic (degree 3 polynomial) model
+* Degree 10 polynomial model
+
+Make predictions for each model and plot your fitted models on the scatterplot.
+
+Simple Linear Regression
+```{python}
+# Code Here
+
+#Simple Linear
+mill_model = LinearRegression()
+mill_model.fit(
+    X=df[["bill_length_mm"]],
+    y=df["bill_depth_mm"]
+)
+
+min = df["bill_length_mm"].min()
+max = df["bill_length_mm"].max()
+
+
+
+X_new = pd.DataFrame()
+X_new["bill_length_mm"] = np.linspace(min, max, num=1000)
+y_new_ = pd.Series(mill_model.predict(X_new),index=X_new["bill_length_mm"]
+)
+
+df.plot.scatter(x="bill_length_mm", y="bill_depth_mm")
+y_new_.plot.line(c = "red");
+```
+
+Quadratic Regression
+```{python}
+# Quadratic
+df["bill_length_mm_squared"] = df["bill_length_mm"] ** 2
+quad_model = LinearRegression()
+quad_model.fit(
+    X=df[["bill_length_mm", "bill_length_mm_squared"]],
+    y=df["bill_depth_mm"]
+)
+
+X_new = pd.DataFrame()
+X_new["bill_length_mm"] = np.linspace(min, max, num=1000)
+X_new["bill_length_mm_squared"] = X_new["bill_length_mm"] ** 2
+y_new_ = pd.Series(
+    quad_model.predict(X_new),
+    index=X_new["bill_length_mm"]
+)
+
+df.plot.scatter(x="bill_length_mm", y="bill_depth_mm")
+y_new_.plot.line(c = "red")
+```
+
+Cubic Regression
+```{python}
+# Cubic Model
+df["bill_length_mm_cubed"] = df["bill_length_mm"] ** 3
+cube_model = LinearRegression()
+cube_model.fit(
+    X=df[["bill_length_mm", "bill_length_mm_squared","bill_length_mm_cubed"]],
+    y=df["bill_depth_mm"]
+)
+
+X_new = pd.DataFrame()
+X_new["bill_length_mm"] = np.linspace(min, max, num=1000)
+X_new["bill_length_mm_squared"] = X_new["bill_length_mm"] ** 2
+X_new["bill_length_mm_cubed"] = X_new["bill_length_mm"] ** 3
+y_new_ = pd.Series(cube_model.predict(X_new),index=X_new["bill_length_mm"]
+)
+
+df.plot.scatter(x="bill_length_mm", y="bill_depth_mm")
+y_new_.plot.line(c = "red")
+```
+
+10 Polynomial Regression
+```{python}
+poly_features_10 = PolynomialFeatures(degree=10, include_bias=False)
+X_10 = poly_features_10.fit_transform(df[["bill_length_mm"]])
+
+model_10 = LinearRegression()
+model_10.fit(X_10, df["bill_depth_mm"])
+
+# Generate new data for prediction
+X_new_10 = pd.DataFrame()
+X_new_10["bill_length_mm"] = np.linspace(min, max, num=1000)
+X_new_10_poly = poly_features_10.transform(X_new_10)
+
+y_new_10 = pd.Series(
+    model_10.predict(X_new_10_poly),
+    index=X_new_10["bill_length_mm"]
+)
+
+df.plot.scatter(x="bill_length_mm", y="bill_depth_mm")
+y_new_10.plot.line(c="red")
+```
+
+* Are any of the models above underfitting the data? If so, which ones and how can you tell?
+* Are any of the models above overfitting the data? If so, which ones and how can you tell?
+* Which of the above models do you think fits the data best and why?
+
+1. The linear model may be underfitting the model as there are a lot of bill_length_mm between 40-50 that have much lower bill depths of 16-14 that the linear model does not capture
+
+2. The cubic model is greatly overfitting the data when bill length is over 55 as the model predicts that bill depth will go much further above 22 when in fact the scatter plot shows a more stagnated bill depth.
+
+3. The quadratic model and the 10th degree polynomial appears to fit the data the best as they both capture the dip in bill_depth while the 10th degree model does underpredict the bill depth at the lowest bill_lengths.
+
