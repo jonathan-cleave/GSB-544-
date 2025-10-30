@@ -26,11 +26,12 @@ df = load_penguins()
 df.head()
 ```
 
+We would need to dummify sex,island type and species type.
+
 ```{python}
 df = pd.get_dummies(df, columns=['species', 'island', 'sex'], drop_first=True)
 df = df.dropna()
-df
-df.isna().sum()
+df.head()
 ```
 
 ```{python}
