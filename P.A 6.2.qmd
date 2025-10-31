@@ -1,0 +1,146 @@
+---
+title: "Practice Activity 6.2"
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+
+Import the Palmer Penguins dataset and print out the first few rows.
+
+Suppose we want to predict `bill_depth_mm` using the other variables in the dataset.
+
+**Dummify** all variables that require this.
+
+
+```{python}
+#!pip install palmerpenguins
+```
+
+```{python}
+import pandas as pd
+import numpy as np
+from palmerpenguins import load_penguins
+from plotnine import ggplot, geom_point, aes, geom_line
+from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import r2_score
+from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
+from sklearn.model_selection import train_test_split
+import random
+```
+
+```{python}
+# Code Here
+df = load_penguins()
+df.head()
+```
+
+```{python}
+df = pd.get_dummies(df, columns=['species', 'island', 'sex'], drop_first=True)
+df = df.dropna()
+cols = ['species_Chinstrap','species_Gentoo', 'island_Dream', 'island_Torgersen', 'sex_male']
+df[cols] = df[cols].astype(int)
+
+
+
+df.head()
+df.columns
+```
+
+Let's use the other variables to predict `bill_depth_mm`. Prepare your data and fit the following models on a training dataset subset of the entire dataset:
+
+* Four different models, each containing a different set of predictor variables
+
+Create a plot like the right plot of Fig 1. in our `Model Validation` chapter with the training and test error plotted for each of your four models.
+
+Which of your models was best?
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 206}
+# Code Here
+total = list(df.columns)
+models = {
+  "Model 1": ["flipper_length_mm"],
+  "Model 2": ["flipper_length_mm","body_mass_g"],
+  "Model 3": ["flipper_length_mm","body_mass_g","sex_male"],
+  "Model 4": ["flipper_length_mm","body_mass_g","sex_male","species_Chinstrap","island_Torgersen"],
+}
+
+y = df["bill_depth_mm"]
+
+X = df[models["Model 4"]]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+
+
+train_rows = []
+
+for name, Xcols in models.items():
+    X_train_sub = X_train[Xcols]
+
+    model = LinearRegression().fit(X_train_sub, y_train)
+    y_train_pred = model.predict(X_train_sub)
+
+    train_mse = mean_squared_error(y_train, y_train_pred)
+    train_rmse = np.sqrt(train_mse)
+    train_r2 = r2_score(y_train, y_train_pred)
+
+    train_rows.append({
+        "Model": name,
+        "Train RMSE": train_rmse,
+        "Train R2": train_r2
+    })
+
+train_error = pd.DataFrame(train_rows)
+train_error
+```
+
+```{python}
+#| colab: {base_uri: https://localhost:8080/, height: 206}
+test_rows = []
+
+for name, Xcols in models.items():
+    X_train_sub = X_train[Xcols]
+    X_test_sub = X_test[Xcols]
+
+    model = LinearRegression().fit(X_train_sub, y_train)
+    y_test_pred = model.predict(X_test_sub)
+
+    test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
+    test_r2 = r2_score(y_test, y_test_pred)
+
+    test_rows.append({
+        "Model": name,
+        "Test RMSE": test_rmse,
+        "Test R2": test_r2
+    })
+
+test_error = pd.DataFrame(test_rows)
+test_error
+```
+
+```{python}
+df_error = train_error.merge(test_error, on="Model")
+df_error
+```
+
+```{python}
+df_error_long = df_error[["Model", "Train RMSE", "Test RMSE"]].melt(id_vars=["Model"], value_name = "RMSE", var_name = "type")
+df_error_long
+```
+
+```{python}
+(ggplot(df_error_long,
+        aes(x = "Model",
+            y = "RMSE",
+            color = "type",
+            group = "type"))
+ +geom_line()
+ +geom_point()
+
+ )
+```
+
+Model 5 had the lowest rsme as well as the highest R2 value, mainly due to the added predictor variables. The test data did very similar to the training data due to a linear model being used for all 5 models. Meaning our training model does a decent enough job predicting using new data.
+
