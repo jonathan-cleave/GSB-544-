@@ -1,0 +1,662 @@
+---
+title: "Lab 5 Insurance Costs"
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+```{python}
+import numpy as np
+import pandas as pd
+from plotnine import *
+from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import r2_score
+from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
+from sklearn.model_selection import train_test_split
+from mizani.formatters import comma_format
+from sklearn.preprocessing import PolynomialFeatures
+```
+
+# Part One: Data Exploration
+
+```{python}
+df = pd.read_csv("https://www.dropbox.com/s/bocjjyo1ehr5auz/insurance_costs_1.csv?dl=1")
+df['smoking'] = df['smoker'].map({'yes': 1, 'no': 0})
+df['male'] = df['sex'].map({'male': 1, 'female': 0})
+
+df.head()
+```
+
+## Summaries
+Observations
+```{python}
+pctSmoke = df["smoker"].value_counts(normalize=True).round(3)
+pctSmoke.to_frame().reset_index()
+```
+
+```{python}
+agedf = df["age"].describe().round(2)
+agedf.to_frame("Age summary")
+```
+
+```{python}
+smokerdf = df.groupby(["smoker","sex"])[["age","bmi","charges"]].mean().round(2)
+smokerdf.reset_index()
+```
+
+```{python}
+chargesdf = df["charges"].describe().round(2)
+chargesdf.to_frame("Charges summary")
+```
+
+## 3 Plots
+
+@fig-1 shows the average medical costs by age. As age increases it seems that medical costs also increases for both women and men with certain outliers having extreme medical costs. The average costs start around $10,000 at 18, and steadly increase to over $14,000 by age 65.
+
+
+```{python}
+#| label: fig-1
+avgdf = df.groupby(["age", "sex"], as_index=False)["charges"].mean()
+
+
+(ggplot(avgdf,aes(x="age",y="charges",fill="sex"))
+ + geom_bar(stat="identity",position="dodge")
+ + scale_fill_manual(values=["#ff69b4","#007bff"])
+ + scale_y_continuous(labels=comma_format())
+ + labs(title="Average Medical Costs by Age and Sex")
+)
+
+```
+
+
+
+@fig-2 shows medical charges by smoking status through a boxplot. Smoking relates to a much higher mean medical cost than non smoking with the range being from $15,000 to $55,000. While nonsmokers range form almost no charges to some outliers at $30,000, but with a much more concentrated IQR between $5,000 to $11,000. Based on these boxplots, it becomes obvious there is a difference in medical costs for smokers and non-smokers
+
+```{python}
+#| label: fig-2
+(
+    ggplot(df, aes(x="smoker", y="charges", fill="smoker"))
+    + geom_boxplot()
+    + scale_fill_manual(values=["#4ED96D", "#DE3716"])
+    + scale_y_continuous(breaks=[0,10000,20000,30000,40000,50000],labels=comma_format())
+    + labs(
+        title="Distribution of Medical Charges by Smoking Status")
+)
+```
+
+
+@fig-3 plots the BMI for all obersevations by the medical charges in a scatter plot, with smoking in red and no smoking in green. As BMI increases there seems to be no upward increases in medical charges for non-smokers. But for smokers, there does seem to be a positive correlation in BMI and medical charges as they both increase.
+```{python}
+#| label: fig-3
+(
+    ggplot(df, aes(x="bmi", y="charges", color="smoker"))
+    + geom_point()
+    + scale_color_manual(values=["#4ED96D", "#DE3716"])
+    + scale_y_continuous(breaks=[0,10000,20000,30000,40000,50000],labels=comma_format())
+    + labs(
+        title="Medical Charges as BMI increases",
+    )
+)
+```
+
+# Part Two: Simple Linear Models
+
+## Model 1 Age
+```{python}
+Model1 = LinearRegression()
+
+
+Model1.fit(
+    X=df[["age"]],
+    y=df["charges"]
+
+)
+
+names = ["Intercept","Age"]
+value = [Model1.intercept_,Model1.coef_]
+
+
+Model1_df = pd.DataFrame(value,names).astype(float).round(2)
+Model1_df.index.name = "Model 1"
+Model1_df
+```
+
+For every year age increases, medical charges go up by $228.80 with the charges starting at $3,611.76.
+
+```{python}
+
+x_pred1 = np.linspace(df['age'].min(), df['age'].max(), 100)
+y_pred1 = Model1.predict(x_pred1.reshape(-1, 1))
+reg1_df = pd.DataFrame({'x': x_pred1, 'y_pred': y_pred1})
+
+(
+ggplot(df,aes("age",y="charges"))
++ geom_point()
++ geom_line(reg1_df, aes('x', 'y_pred'), color='red',size=1.5)
++ labs(title="Scatterplot with Model 1 added")
+)
+```
+
+Model 1 seems to fit some of the data where charges are small but overall does not do a good job at predicting charges. 
+
+## Model 2 Age + Sex
+```{python}
+Model2 = LinearRegression()
+
+Model2.fit(
+    X = df[["age","male"]],
+    y=df["charges"]
+)
+
+
+names = ["Intercept","Age","Male"]
+value = [Model2.intercept_,Model2.coef_[0],Model2.coef_[1]]
+
+Model2_df = pd.DataFrame(value,names).astype(float).round(2)
+Model2_df.index.name = "Model 2"
+Model2_df
+```
+
+For every year age increases, medical charges in dollars go up by $228.80 and there is a $649.83 premiumn if the beneficiary is male.
+
+```{python}
+x_pred2 = np.linspace(df['age'].min(), df['age'].max(), 100)
+
+y_pred2_male0 = Model2.predict(pd.DataFrame({'age': x_pred2, 'male': 0}))
+y_pred2_male1 = Model2.predict(pd.DataFrame({'age': x_pred2, 'male': 1}))
+
+reg2_df = pd.DataFrame({
+    'age': np.tile(x_pred2, 2),
+    'y_pred': np.concatenate([y_pred2_male0, y_pred2_male1]),
+    'male': ['Female'] * 100 + ['Male'] * 100
+})
+
+(
+ggplot(df, aes(x='age', y='charges'))
++ geom_point()
++ geom_line(reg2_df, aes(x='age', y='y_pred', color='male'), size=1.2)
++ labs(title="Scatterplot with Model 2 added")
+)
+```
+
+Model 2 seems to be very similar to Model 1 and the effect of sex seems to not shift the line vertically whether male or female.
+
+## Model 3 Age + Smoker
+
+```{python}
+Model3 = LinearRegression()
+
+Model3.fit(
+    X = df[["age","smoking"]],
+    y=df["charges"]
+)
+
+
+names = ["Intercept","Age","Smoking"]
+value = [Model3.intercept_,Model3.coef_[0],Model3.coef_[1]]
+
+Model3_df = pd.DataFrame(value,names).astype(float).round(2)
+Model3_df.index.name = "Model 3"
+Model3_df
+```
+
+For every year increase, there is a $253.15 increase in charge and a $24048.87 premiumn if the benefiicary smokes.
+
+```{python}
+x_pred3 = np.linspace(df['age'].min(), df['age'].max(), 100)
+
+reg3_df = (
+    pd.DataFrame({
+        'age': np.tile(x_pred3, 2),
+        'smoking': np.repeat([0, 1], repeats=len(x_pred3))
+    })
+)
+
+reg3_df['y_pred3'] = Model3.predict(reg3_df[['age', 'smoking']])
+
+
+reg3_df['smoking_label'] = reg3_df['smoking'].map({0: 'Non-smoker', 1: 'Smoker'})
+
+(
+ggplot(df, aes(x='age', y='charges'))
++ geom_point()
++ geom_line(reg3_df, aes(x='age', y='y_pred3', color='smoking_label'),size=1.5)
++ labs(title='Scatterplot with Model 3 added', color='Smoking')
+)
+
+```
+
+Model 3 does a very good job at predicting 2 distinct trends in the data. Non-smoking correlates to the lower medical charges which have a highly correlated path, while Smokers have larger charges but very loosely correlated points.
+
+## 4. Best model
+
+Based on the plots it seems that Q3 which includes smoker as the predictor variable is much better at fitting the data.
+```{python}
+y_pred_Q1 = Model1.predict(df[['age']])
+y_pred_Q2 = Model2.predict(df[['age', 'male']])
+y_pred_Q3 = Model3.predict(df[['age', 'smoking']])
+
+mse_Q1 = mean_squared_error(df['charges'], y_pred_Q1)
+r2_Q1  = r2_score(df['charges'], y_pred_Q1)
+
+mse_Q2 = mean_squared_error(df['charges'], y_pred_Q2)
+r2_Q2  = r2_score(df['charges'], y_pred_Q2)
+
+mse_Q3 = mean_squared_error(df['charges'], y_pred_Q3)
+r2_Q3  = r2_score(df['charges'], y_pred_Q3)
+
+metrics_df = pd.DataFrame({
+    'Model': ["Model 1","Model 2", "Model 3"],
+    'MSE': [mse_Q1,mse_Q2, mse_Q3],
+    'R²': [r2_Q1,r2_Q2, r2_Q3]
+}).round(3)
+
+metrics_df['MSE'] = metrics_df['MSE'].apply(lambda x: f"{x:,.2f}")
+
+metrics_df
+```
+
+Based on the R-squared and MSE, Model 3 is much better at predicting charges as its R2 score is higher at 0.76 and MSE is much lower at 33 million instead of 126 million.
+
+# Part Three: Multiple Linear Models
+
+## 1. Age and BMI
+
+```{python}
+Model4 = LinearRegression()
+
+Model4.fit(
+    X = df[["age","bmi"]],
+    y=df["charges"]
+)
+
+
+names = ["Intercept","Age","BMI"]
+value = [Model4.intercept_,Model4.coef_[0],Model4.coef_[1]]
+
+Model4_df = pd.DataFrame(value,names).astype(float).round(2)
+Model4_df.index.name = "Model 4"
+Model4_df
+```
+
+```{python}
+y_pred_Q4 = Model4.predict(df[['age', 'bmi']])
+
+mse_Q4 = mean_squared_error(df['charges'], y_pred_Q4)
+r2_Q4  = r2_score(df['charges'], y_pred_Q4)
+
+metrics2_df = pd.DataFrame({
+    'Model': ["Model 1","Model 4"],
+    'MSE': [mse_Q1, mse_Q4],
+    'R²': [r2_Q1, r2_Q4]
+}).round(3)
+
+metrics2_df['MSE'] = metrics2_df['MSE'].apply(lambda x: f"{x:,.2f}")
+
+metrics2_df
+```
+
+The MSE for Model 4 is very similar to Model 1 as well as the R2 due to BMI not being a good predictor of charges but slightly better than just age.
+
+## 2. Age + Age^2
+```{python}
+Quad_Model = LinearRegression()
+
+df["age_squared"] = df["age"]**2
+
+Quad_Model.fit(
+    X = df[["age","age_squared"]],
+    y=df["charges"]
+)
+
+
+names = ["Intercept","Age","Age^2"]
+value = [Quad_Model.intercept_,Quad_Model.coef_[0],Quad_Model.coef_[1]]
+
+Quad_Model_df = pd.DataFrame(value,names).astype(float).round(2)
+Quad_Model_df.index.name = "Quad Model"
+Quad_Model_df
+```
+
+```{python}
+y_pred_Quad = Quad_Model.predict(df[['age', 'age_squared']])
+
+mse_Quad = mean_squared_error(df['charges'], y_pred_Quad)
+r2_Quad  = r2_score(df['charges'], y_pred_Quad)
+
+metrics3_df = pd.DataFrame({
+    'Model': ["Model 1","Quad Mdodel"],
+    'MSE': [mse_Q1, mse_Quad],
+    'R²': [r2_Q1, r2_Quad]
+}).round(3)
+
+metrics3_df['MSE'] = metrics3_df['MSE'].apply(lambda x: f"{x:,.2f}")
+
+metrics3_df
+```
+
+The MSE and R-squared are almost exactly the same as Model 1 meaning that age squared is not a good predictor of medical charges and most likely the relationship is not quadratic.
+
+## 3. 4-degree Polynomial
+
+```{python}
+poly_features_4 = PolynomialFeatures(degree=4, include_bias=False)
+X_4 = poly_features_4.fit_transform(df[["age"]])
+
+Poly4_Model = LinearRegression()
+
+Poly4_Model.fit(
+    X = X_4,
+    y=df["charges"]
+)
+Poly4_Model.coef_
+
+names = ["Intercept","Age","Age^2","Age^3","Age^4"]
+value = [Poly4_Model.intercept_,Poly4_Model.coef_[0],Poly4_Model.coef_[1],Poly4_Model.coef_[2],Poly4_Model.coef_[3]]
+
+Poly4_df = pd.DataFrame(value,names).astype(float).round(2)
+Poly4_df.index.name = "Polynomial 4 Model"
+Poly4_df
+```
+
+```{python}
+y_pred_Poly4 = Poly4_Model.predict(X_4)
+
+mse_Poly4 = mean_squared_error(df['charges'], y_pred_Poly4)
+r2_Poly4  = r2_score(df['charges'], y_pred_Poly4)
+
+metrics4_df = pd.DataFrame({
+    'Model': ["Model 1","Polynomial 4 Mdodel"],
+    'MSE': [mse_Q1, mse_Poly4],
+    'R²': [r2_Q1, r2_Poly4]
+}).round(3)
+
+metrics4_df['MSE'] = metrics4_df['MSE'].apply(lambda x: f"{x:,.2f}")
+
+metrics4_df
+```
+
+The MSE and R-squared are almost exactly the same as Model 1 meaning that a polynomial model of just age is not a good predictor of medical charges.
+
+## 4. 12-degree Polynomial
+
+```{python}
+poly_features_12 = PolynomialFeatures(degree=12, include_bias=False)
+X_12 = poly_features_12.fit_transform(df[["age"]])
+
+Poly12_Model = LinearRegression()
+
+Poly12_Model.fit(
+    X = X_12,
+    y=df["charges"]
+)
+
+names = ["Intercept"] + [f"Age^{i}" if i > 1 else "Age" for i in range(1, 13)]
+values = [Poly12_Model.intercept_] + list(Poly12_Model.coef_)
+
+Poly12_df = pd.DataFrame(values, index=names, columns=[0])
+Poly12_df.index.name = "Polynomial 12 Model"
+
+Poly12_df
+```
+
+
+```{python}
+y_pred_Poly12 = Poly12_Model.predict(X_12)
+
+mse_Poly12 = mean_squared_error(df['charges'], y_pred_Poly12)
+r2_Poly12  = r2_score(df['charges'], y_pred_Poly12)
+
+metrics5_df = pd.DataFrame({
+    'Model': ["Model 1","Polynomial 12 Model"],
+    'MSE': [mse_Q1, mse_Poly12],
+    'R²': [r2_Q1, r2_Poly12]
+}).round(3)
+
+metrics5_df['MSE'] = metrics5_df['MSE'].apply(lambda x: f"{x:,.2f}")
+
+metrics5_df
+```
+
+The MSE and R-squared are almost exactly the same as Model 1 meaning that a polynomial model of just age even with 12 degrees does not do a good job predictor of medical charges or increasing R-squared.
+
+## 5. Best Model
+
+```{python}
+metrics6_df = pd.DataFrame({
+    'Model': ["Model 4","Quad Model","Polynomial 4 Model","Polynomial 12 Mdodel"],
+    'MSE': [mse_Q4,mse_Quad, mse_Poly4, mse_Poly12],
+    'R²': [r2_Q4, r2_Quad, r2_Poly4, r2_Poly12]
+}).round(5)
+
+metrics6_df['MSE'] = metrics6_df['MSE'].apply(lambda x: f"{x:,.2f}")
+
+metrics6_df = metrics6_df.sort_values(by='R²', ascending=False).reset_index(drop=True)
+metrics6_df
+```
+
+According to MSE and R-squared the best multiple linear model is Model 4 with a slighly lower MSE of 123 million and highest R-squared of 0.12. This is not the best model as the R-squared is still very low in comparison to Model 3's simple linear model and we have proven that BMI is not a very good predictor of medical charges before.
+
+## 6. Plotted Predictions
+
+```{python}
+x_pred = np.linspace(df['age'].min(), df['age'].max(), 200).reshape(-1, 1)
+
+X_pred_poly12 = poly_features_12.transform(x_pred)
+y_pred_poly12 = Poly12_Model.predict(X_pred_poly12)
+
+reg12_df = pd.DataFrame({'age': x_pred.flatten(), 'charges_pred': y_pred_poly12})
+
+(
+    ggplot(df, aes(x='age', y='charges'))
+    + geom_point(alpha=0.6)
+    + geom_line(reg12_df, aes(x='age', y='charges_pred'), color='red', size=1.2)
+    + labs(title="Age vs Charges with Polynomial 12 Model",x="Age", y="Charges")
+)
+```
+
+# Part Four: New Data
+
+```{python}
+df2 = pd.read_csv("https://www.dropbox.com/s/sky86agc4s8c6qe/insurance_costs_2.csv?dl=1")
+df2['smoking'] = df2['smoker'].map({'yes': 1, 'no': 0})
+df2['male'] = df2['sex'].map({'male': 1, 'female': 0})
+df2.head()
+```
+
+## Creating New Models
+
+```{python}
+M1 = LinearRegression().fit(df[['age']], df['charges'])
+pred1 = M1.predict(df2[['age']])
+mse1 = mean_squared_error(df2['charges'], pred1)
+r2_1 = r2_score(df2['charges'], pred1)
+
+M2 = LinearRegression().fit(df[['age', 'bmi']], df['charges'])
+pred2 = M2.predict(df2[['age', 'bmi']])
+mse2 = mean_squared_error(df2['charges'], pred2)
+r2_2 = r2_score(df2['charges'], pred2)
+
+M3 = LinearRegression().fit(df[['age', 'bmi', 'smoking']], df['charges'])
+pred3 = M3.predict(df2[['age', 'bmi', 'smoking']])
+mse3 = mean_squared_error(df2['charges'], pred3)
+r2_3 = r2_score(df2['charges'], pred3)
+
+df['age_smoker'] = df['age'] * df['smoking']
+df['bmi_smoker'] = df['bmi'] * df['smoking']
+df2['age_smoker'] = df2['age'] * df2['smoking']
+df2['bmi_smoker'] = df2['bmi'] * df2['smoking']
+
+M4 = LinearRegression().fit(df[['age', 'bmi', 'age_smoker', 'bmi_smoker']], df['charges'])
+pred4 = M4.predict(df2[['age', 'bmi', 'age_smoker', 'bmi_smoker']])
+mse4 = mean_squared_error(df2['charges'], pred4)
+r2_4 = r2_score(df2['charges'], pred4)
+
+M5 = LinearRegression().fit(df[['age', 'bmi', 'smoking', 'age_smoker', 'bmi_smoker']], df['charges'])
+pred5 = M5.predict(df2[['age', 'bmi', 'smoking', 'age_smoker', 'bmi_smoker']])
+mse5 = mean_squared_error(df2['charges'], pred5)
+r2_5 = r2_score(df2['charges'], pred5)
+
+```
+
+## MSEs and R2
+```{python}
+results_df = pd.DataFrame({
+    'Model': [
+        'Model 1: age',
+        'Model 2: age + bmi',
+        'Model 3: age + bmi + smoker',
+        'Model 4: (age + bmi):smoker',
+        'Model 5: (age + bmi)*smoker'
+    ],
+    'MSE (new data)': [mse1, mse2, mse3, mse4, mse5],
+    'R² (new data)': [r2_1, r2_2, r2_3, r2_4, r2_5]
+})
+
+results_df['MSE (new data)'] = results_df['MSE (new data)'].apply(lambda x: f"{x:,.2f}")
+results_df['R² (new data)'] = results_df['R² (new data)'].round(3)
+
+results_df
+```
+
+Based on the MSE, model 5 which includes (Age + BMI) * Smoker is the model that best predicts Medical Charges 
+
+```{python}
+pred5 = M5.predict(df2[['age', 'bmi', 'smoking', 'age_smoker', 'bmi_smoker']])
+residuals = df2['charges'] - pred5
+
+residuals_df = df2.copy()
+residuals_df['predicted'] = pred5
+residuals_df['residual'] = residuals
+
+(
+ggplot(residuals_df, aes(x='predicted', y='residual'))
++ geom_point(color='teal',size=3)
++ geom_hline(yintercept=0, color='red', linetype='dashed',size=1.5,alpha=0.7)
++ labs(title='Residual Plot for Model 5 ((age + bmi)*smoker)',x='Predicted Charges',y='Resdiuals')
+)
+```
+
+# Part Five: Full Exploration
+
+## Baseline Model to compare
+```{python}
+test_model = LinearRegression()
+test_model.fit(df[["age", "bmi", "smoking", "male"]], df["charges"])
+
+y_pred = test_model.predict(df2[["age", "bmi", "smoking", "male"]])
+
+mse_test = mean_squared_error(df2["charges"], y_pred)
+r2_test = r2_score(df2["charges"], y_pred)
+
+print(f"MSE: {mse_test:,.2f}")
+print(f"R²: {r2_test:.3f}")
+```
+
+## Find optimal number of polynomials to maximize R-squared
+```{python}
+features = ['age', 'bmi', 'smoking', 'male']
+
+results = []
+
+for d in range(1, 6):
+
+    poly = PolynomialFeatures(degree=d, include_bias=False)
+    X_train = poly.fit_transform(df[features])
+    X_test = poly.transform(df2[features])
+    
+
+    model = LinearRegression()
+    model.fit(X_train, df['charges'])
+    
+
+    y_pred = model.predict(X_test)
+    
+
+    mse = mean_squared_error(df2['charges'], y_pred)
+    r2 = r2_score(df2['charges'], y_pred)
+    
+    results.append((d, mse, r2))
+
+results_df = pd.DataFrame(results, columns=['Degree', 'MSE', 'R²'])
+results_df['MSE'] = results_df['MSE'].apply(lambda x: f"{x:,.2f}")
+results_df['R²'] = results_df['R²'].round(3)
+results_df
+
+```
+
+Based on R2 and MSE we should use a 2-degree polynomial model
+
+## Optimal Model based on 2 degrees
+```{python}
+poly_features = PolynomialFeatures(degree=2, include_bias=False)
+X_train = poly_features.fit_transform(df[['age', 'bmi', 'smoking', 'male']])
+X_test = poly_features.transform(df2[['age', 'bmi', 'smoking', 'male']])
+
+best_model = LinearRegression()
+best_model.fit(X_train, df['charges'])
+
+
+y_pred_best = best_model.predict(X_test)
+
+mse_best = mean_squared_error(df2['charges'], y_pred_best)
+r2_best = r2_score(df2['charges'], y_pred_best)
+
+print(f"MSE: {mse_best:,.2f}")
+print(f"R²: {r2_best:.3f}")
+
+```
+
+```{python}
+feature_names = poly_features.get_feature_names_out(['age', 'bmi', 'smoking', 'male'])
+
+
+names = ['Intercept'] + list(feature_names)
+
+values = [best_model.intercept_] + list(best_model.coef_)
+
+best_model_df = pd.DataFrame(values, index=names, columns=[0]).round(2)
+best_model_df.index.name = "Optimal Model"
+best_model_df
+```
+
+```{python}
+features = ['age', 'bmi', 'smoking', 'male']
+
+x_pred = np.linspace(df['age'].min(), df['age'].max(), 100)
+reg_best_df = pd.DataFrame({
+    'age': x_pred,
+    'bmi': df['bmi'].mean(),
+    'smoking': df['smoking'].mean(),
+    'male': df['male'].mean()
+})
+
+X_plot = poly_features.transform(reg_best_df[features])
+
+
+reg_best_df['charges_pred'] = best_model.predict(X_plot)
+
+(
+    ggplot(df, aes(x='age', y='charges'))
+    + geom_point(color='black', size=2)
+    + geom_line(reg_best_df, aes(x='age', y='charges_pred'), color='purple', size=1.5)
+    + labs(title='Optimal Model', x='Age', y='Charges')
+)
+
+```
+
+## Residual plot of best model
+```{python}
+residuals_df = df2.copy()
+residuals_df['predicted'] = y_pred_best
+residuals_df['residuals'] = residuals_df['charges'] - residuals_df['predicted']
+
+(
+    ggplot(residuals_df, aes(x='predicted', y='residuals'))
+    + geom_point(color='teal',size=3)
+    + geom_hline(yintercept=0, color='purple', linetype='dashed',size=1.5,alpha=0.7)
+    + labs(title='Residual Plot for Optimal Model',x='Predicted Charges',y='Residuals')
+)
+```
