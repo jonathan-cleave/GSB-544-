@@ -1,0 +1,752 @@
+---
+title: "Lab 6 Variable Selection and Regularization"
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+```{python}
+import pandas as pd
+import numpy as np
+from sklearn.pipeline import Pipeline
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import GridSearchCV
+from sklearn.compose import make_column_selector, ColumnTransformer
+from sklearn.linear_model import Ridge, Lasso, ElasticNet 
+import warnings
+from sklearn.exceptions import ConvergenceWarning
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
+from sklearn.preprocessing import FunctionTransformer
+from plotnine import *
+from sklearn.linear_model import ElasticNetCV
+```
+
+```{python}
+df = pd.read_csv("C:/Users/jonat/Documents/Calpoly MSBA/Fall/Machine Learning 544/Data/Hitters.csv")
+df = df.dropna()
+
+df.head()
+```
+
+# Part 1 Different Model Specs
+
+## A. Regression without Regularization
+
+### 1. Linear pipeline and model
+```{python}
+X = df.drop(columns=["Salary"])
+y = df["Salary"]
+
+X_train, X_test,y_train,y_test = train_test_split(X,y, random_state=321)
+
+```
+
+```{python}
+ct_lr = ColumnTransformer(
+  [
+    ("dummify", OneHotEncoder(sparse_output = False, handle_unknown='ignore'),make_column_selector(dtype_include=object)),
+    ("standardize", 
+    StandardScaler(), 
+    make_column_selector(dtype_include=np.number))
+  ],
+  remainder = "drop"
+)
+
+lr_pipeline1 = Pipeline(
+  [("preprocessing", ct_lr),
+  ("linear_regression", LinearRegression())]
+)
+```
+
+```{python}
+Model1 = lr_pipeline1.fit(X_train, y_train)
+y_pred1 = Model1.predict(X_test)
+
+lr_step = Model1.named_steps['linear_regression']
+preproc = Model1.named_steps['preprocessing']
+
+feature_names = preproc.get_feature_names_out(input_features=X_train.columns)
+
+coefs = np.ravel(lr_step.coef_)
+
+Model1_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Coefficient': np.round(coefs, 2)
+})
+
+intercept = float(np.ravel([lr_step.intercept_]))
+Model1_df.loc[len(Model1_df)] = ['Intercept', round(intercept, 2)]
+
+Model1_df = Model1_df.set_index('Feature')
+Model1_df.index.name = 'Linear Regression'
+Model1_df = Model1_df.sort_values("Coefficient",ascending=False)
+Model1_df = pd.concat([Model1_df.iloc[[-1]], Model1_df.iloc[:-1]])
+
+Model1_df
+```
+
+### 2. Most important coefficients
+```{python}
+# Ordering Coefficients
+Model1_df.sort_values("Coefficient",ascending=False).head(5)
+```
+
+Based on the highest positive coefficients, Career runs results in a $452k increase in salary for every 1 std. Hits is also another important coefficient where for every 1 std increase, there is a $318k increase in salary
+
+```{python}
+Model1_df.sort_values("Coefficient",ascending=True).head(5)
+```
+
+Based on the highest negative coefficients, career at bats for every 1 std decrease results in a $252k decrease. Career Walks also has a negtaive $218k decrease in salary for every 1 std.
+
+### 3. Cross validated MSE
+```{python}
+mse_lr= -(cross_val_score(lr_pipeline1, X, y, cv=5, scoring="neg_mean_squared_error"))
+mse_lr = np.mean(mse_lr).round(3)
+```
+
+We would expect to see a mse of `{python} float(mse_lr)` for 1989.
+
+## B. Ridge Regression
+
+### 1. Ridge pipeline and model
+```{python}
+ct_ridge = ColumnTransformer(
+  [
+    ("dummify", 
+    OneHotEncoder(sparse_output = False, handle_unknown='ignore'),make_column_selector(dtype_include=object)),
+    ("standardize", StandardScaler(), make_column_selector(dtype_include=np.number))
+  ],
+  remainder = "passthrough"
+)
+
+ridge_pipeline = Pipeline(
+  [("preprocessing", ct_ridge),
+  ("ridge_regression", Ridge(alpha=1))]
+)
+
+```
+
+### 2. Fine tuning hyperparameter with cross validation
+```{python}
+alphas2 = {'ridge_regression__alpha': np.logspace(-3, 3, 80)}
+
+gscv_ridge = GridSearchCV(ridge_pipeline, param_grid=alphas2, cv = 5, scoring='neg_mean_squared_error')
+
+gscv_fitted_ridge = gscv_ridge.fit(X, y)
+
+ridge_df = pd.DataFrame(gscv_fitted_ridge.cv_results_).sort_values("rank_test_score").round(3)
+ridge_df.head(5)
+```
+
+### 3. Most important coefficients
+```{python}
+Model2 = gscv_fitted_ridge.best_estimator_
+y_pred1 = Model2.predict(X_test)
+
+ridge_step = Model2.named_steps['ridge_regression']
+preproc = Model2.named_steps['preprocessing']
+
+feature_names = preproc.get_feature_names_out(input_features=X_train.columns)
+
+coefs2 = np.ravel(ridge_step.coef_)
+
+Model2_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Coefficient': np.round(coefs, 2)
+})
+
+intercept = float(np.ravel([ridge_step.intercept_]))
+Model2_df.loc[len(Model2_df)] = ['Intercept', round(intercept, 2)]
+
+Model2_df = Model2_df.set_index('Feature')
+Model2_df.index.name = 'Ridge Regression'
+Model2_df = pd.concat([Model2_df.iloc[[-1]], Model2_df.iloc[:-1]])
+
+Model2_df
+```
+
+```{python}
+# Ordering Coefficients Positively
+Model2_df.sort_values("Coefficient",ascending=False).head(5)
+```
+
+For the ridge regression standardized career runs increases salary by $452k and Hits also increase by $318k for every std increase
+
+```{python}
+# Ordering Coefficients Negatively
+Model2_df.sort_values("Coefficient",ascending=True).head(7)
+```
+
+The most important negative coefficents for Ridge regression are standard career at bats at -$252k and Career Walks at -$218k.
+
+### 4. Predicted MSE for Ridge
+```{python}
+mse_ridge= -(cross_val_score(gscv_fitted_ridge, X, y, cv=5, scoring="neg_mean_squared_error"))
+mse_ridge = np.mean(mse_ridge).round(3)
+```
+
+We would expect to see a mse of `{python} float(mse_ridge)` for 1989.
+
+## C. Lasso Regression
+### 1. Lasso pipeline and model
+```{python}
+ct_lasso = ColumnTransformer(
+  [
+    ("dummify", 
+    OneHotEncoder(sparse_output = False, handle_unknown='ignore'),make_column_selector(dtype_include=object)),
+    ("standardize", StandardScaler(), make_column_selector(dtype_include=np.number))
+  ],
+  remainder = "passthrough"
+)
+
+lasso_pipeline = Pipeline(
+  [("preprocessing", ct_lasso),
+  ("lasso_regression", Lasso(alpha=1))]
+)
+
+```
+
+### 2. Fine tuning hyperparameter with cross validation
+```{python}
+alphas3 = {'lasso_regression__alpha': np.logspace(-3, 3, 80)}
+
+gscv_lasso = GridSearchCV(lasso_pipeline, param_grid=alphas3, cv = 5, scoring='neg_mean_squared_error')
+
+gscv_fitted_lasso = gscv_lasso.fit(X, y)
+
+lasso_df = pd.DataFrame(gscv_fitted_lasso.cv_results_).sort_values("rank_test_score").round(3)
+lasso_df.head(5)
+```
+
+### 3. Most important coefficients
+```{python}
+Model3 = gscv_fitted_lasso.best_estimator_
+y_pred1 = Model2.predict(X_test)
+
+lasso_step = Model3.named_steps['lasso_regression']
+preproc = Model2.named_steps['preprocessing']
+
+feature_names = preproc.get_feature_names_out(input_features=X_train.columns)
+
+coefs3 = np.ravel(lasso_step.coef_)
+
+Model3_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Coefficient': np.round(coefs, 2)
+})
+
+intercept = float(np.ravel([lasso_step.intercept_]))
+Model3_df.loc[len(Model3_df)] = ['Intercept', round(intercept, 2)]
+
+Model3_df = Model3_df.set_index('Feature')
+Model3_df.index.name = 'Lasso Regression'
+Model3_df = pd.concat([Model3_df.iloc[[-1]], Model3_df.iloc[:-1]])
+
+Model3_df
+```
+
+```{python}
+# Ordering Coefficients Positively
+Model3_df.sort_values("Coefficient",ascending=False).head(5)
+```
+
+The most important positive coefficents for Lasso regression are career runs at $452k and hits $318k along with career RBI of $239k.
+
+```{python}
+# Ordering Coefficients Negatively
+Model3_df.sort_values("Coefficient",ascending=True).head(7)
+```
+
+The most important negative coefficents for Lasso regression are career at bats at -$252k and career walks at -$218k for every standard deviation decrease.
+
+### 4. Preidcted MSE using Lasso
+```{python}
+mse_lasso= -(cross_val_score(gscv_fitted_lasso, X, y, cv=5, scoring="neg_mean_squared_error"))
+mse_lasso = np.mean(mse_lasso).round(3)
+```
+
+We would expect to see a mse of `{python} float(mse_lasso)` for 1989.
+
+
+## D. Elastic Net
+### 1. Elastic pipeline and model
+```{python}
+ct_elastic = ColumnTransformer(
+  [
+    ("dummify", 
+    OneHotEncoder(sparse_output = False, handle_unknown='ignore'),make_column_selector(dtype_include=object)),
+    ("standardize", StandardScaler(), make_column_selector(dtype_include=np.number))
+  ],
+  remainder = "passthrough"
+)
+
+elastic_pipeline = Pipeline(
+  [("preprocessing", ct_elastic),
+  ("elastic_net", ElasticNet())]
+)
+```
+
+### 2. Fine tuning hyperparameter and ratio with cross validation
+```{python}
+param_grid = {
+    "elastic_net__alpha": np.logspace(-3, 3, 80),
+    "elastic_net__l1_ratio": np.arange(0,1.2,.2),
+}
+
+gscv_elastic = GridSearchCV(elastic_pipeline, param_grid=param_grid, cv = 5, scoring='neg_mean_squared_error')
+
+gscv_fitted_elastic = gscv_elastic.fit(X, y)
+
+elastic_df = pd.DataFrame(gscv_fitted_elastic.cv_results_).sort_values("rank_test_score")
+elastic_df.head(5)
+```
+
+### 3. Most important coefficients
+```{python}
+Model4 = gscv_fitted_elastic.best_estimator_
+y_pred1 = Model4.predict(X_test)
+
+elastic_step = Model4.named_steps['elastic_net']
+preproc = Model4.named_steps['preprocessing']
+
+feature_names = preproc.get_feature_names_out(input_features=X_train.columns)
+
+coefs4 = np.ravel(elastic_step.coef_)
+
+Model4_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Coefficient': np.round(coefs4, 2)
+})
+
+intercept = float(np.ravel([elastic_step.intercept_]))
+Model4_df.loc[len(Model4_df)] = ['Intercept', round(intercept, 2)]
+
+Model4_df = Model4_df.set_index('Feature')
+Model4_df.index.name = 'Elastic Net'
+Model4_df = pd.concat([Model4_df.iloc[[-1]], Model4_df.iloc[:-1]])
+
+Model4_df
+```
+
+```{python}
+# Ordering Coefficients Positively
+Model4_df.sort_values("Coefficient",ascending=False).head(5)
+```
+
+The most important positive coefficients for Elastic Net is Hits with $228k increase for every standard deviation in Hits and $196k for every standard deviation in career runs. Along with $119k for every standard deviation in career hits 
+
+```{python}
+# Ordering Coefficients Negatively
+Model4_df.sort_values("Coefficient",ascending=True).head(7)
+```
+
+The most important negative coefficients for Elastic Net is number of times at bat with $213k decrease for every standard deviation and $143k for every standard deviation decrease in Career walks. Along with $91k for every standard deviation in career at bats 
+
+### 4. Preidcted MSE for elastic
+```{python}
+mse_elastic= -(cross_val_score(gscv_fitted_elastic, X, y, cv=5, scoring="neg_mean_squared_error"))
+mse_elastic = np.mean(mse_elastic).round(3)
+```
+
+We would expect to see a mse of `{python} float(mse_elastic)` for 1989.
+
+### Predicted MSE for all models
+```{python}
+# MSE comparison
+pd.DataFrame({"Model": ["Linear","Ridge","Lasso","Elastic"],"MSE":[mse_lr,mse_ridge,mse_lasso,mse_elastic]}).sort_values("MSE")
+```
+
+# Part 2 Variable Selection
+
+```{python}
+num_cols = df.select_dtypes(include=["number"]).columns.tolist()
+cat_cols = df.select_dtypes(exclude=["number"]).columns.tolist()
+
+print("Numeric:", num_cols)
+print("Categorical:", cat_cols)
+
+```
+
+```{python}
+
+coef_importance = Model1_df.drop("Intercept")
+
+coef_importance['AbsCoeff'] = coef_importance['Coefficient'].abs()
+coef_importance = coef_importance.sort_values('AbsCoeff', ascending=False)
+coef_importance.head(11)
+```
+
+The most important numeric variable is the number of hits.
+
+The top 5 numerical variables were: 1. hits , 2. career runs, 3.career at bats, 4. career RBI, 5. At bats
+
+The most important categorical variable was Division whether E or W.
+
+
+
+```{python}
+def mse_output(model_type, X_num, y):
+
+    ct = ColumnTransformer(
+        transformers=[
+            ("dummify", OneHotEncoder(sparse_output=False, handle_unknown='ignore'),
+             make_column_selector(dtype_include=object)),
+            ("standardize", StandardScaler(),
+             make_column_selector(dtype_include=np.number))
+        ],
+        remainder="passthrough"
+    )
+
+    if model_type == "lasso":
+        model = Lasso(max_iter=10000)
+        param_grid = {'model__alpha': np.logspace(-3, 3, 80)}
+    elif model_type == "ridge":
+        model = Ridge(max_iter=10000)
+        param_grid = {'model__alpha': np.logspace(-3, 3, 80)}
+    elif model_type == "elastic":
+        model = ElasticNet(max_iter=10000)
+        param_grid = {
+            'model__alpha': np.logspace(-3, 3, 80),
+            'model__l1_ratio': np.arange(0,1.2,.2)
+        }
+    else:
+        raise ValueError("model_type must be 'ridge', 'lasso', or 'elastic'")
+
+    pipe = Pipeline([
+        ("preprocessing", ct),
+        ("model", model)
+    ])
+
+
+    gscv = GridSearchCV(pipe, param_grid, cv=5, scoring='neg_mean_squared_error')
+    gscv.fit(X_num, y)
+
+    best_est = gscv.best_estimator_
+    best_params = gscv.best_params_
+
+
+    mse = -cross_val_score(best_est, X_num, y, cv=5,scoring='neg_mean_squared_error')
+    mse = np.mean(mse).round(3)
+
+    return {
+      "Model": model_type.title(),
+      "MSE": mse,
+      **best_params
+    }
+```
+
+## 1. MSE using best Numeric Variable
+
+```{python}
+X1 = df[["Hits"]]
+y = df["Salary"]
+
+Model1 = lr_pipeline1.fit(X_train[["Hits"]], y_train)
+
+linear_mse1 = np.mean(-(cross_val_score(lr_pipeline1, X1, y, cv=5, scoring="neg_mean_squared_error")).round(3))
+linear_mse1
+
+results1 = [
+mse_output("lasso",X1,y),
+mse_output("ridge",X1,y),
+mse_output("elastic",X1,y)
+]
+
+results1_df = pd.DataFrame(results1).sort_values("MSE")
+results1_df
+```
+
+## 2. MSE using 5 numeric variables
+
+```{python}
+X2 = df[["Hits","CRuns","CAtBat","CRBI","AtBat"]]
+y = df["Salary"]
+
+Model1 = lr_pipeline1.fit(X_train[["Hits","CRuns","CAtBat","CRBI","AtBat"]], y_train)
+
+linear_mse2 = np.mean(-(cross_val_score(lr_pipeline1, X2, y, cv=5, scoring="neg_mean_squared_error")).round(3))
+linear_mse2
+
+results2 = [
+mse_output("lasso",X2,y),
+mse_output("ridge",X2,y),
+mse_output("elastic",X2,y)
+]
+results2_df = pd.DataFrame(results2).sort_values("MSE")
+results2_df
+```
+
+## 3 MSE using with interactions
+
+```{python}
+def mse_output_int(model_type, X_num, cat, y, cv=5):
+
+    nums = X_num.copy()
+    dummies = pd.get_dummies(cat, drop_first=True)
+
+    inter_parts, inter_names = [], []
+    for n in nums.columns:
+        for d in dummies.columns:
+            inter_parts.append(nums[n].to_numpy() * dummies[d].to_numpy())
+            inter_names.append(f"{n}*{d}")
+
+    inter = pd.DataFrame(np.column_stack(inter_parts), columns=inter_names, index=nums.index)
+    X_design = pd.concat([nums, dummies, inter], axis=1)
+
+    to_scale = list(nums.columns) + list(inter.columns)
+    no_scale = list(dummies.columns)
+
+    ct = ColumnTransformer([
+        ("scale", StandardScaler(), to_scale),
+        ("pass", "passthrough", no_scale)
+    ], remainder="drop")
+
+    if model_type == "ridge":
+        model = Ridge(max_iter=10000)
+        param_grid = {"model__alpha": np.logspace(-3, 3, 80)}
+    elif model_type == "lasso":
+        model = Lasso(max_iter=10000)
+        param_grid = {"model__alpha": np.logspace(-3, 3, 80)}
+    elif model_type == "elastic":
+        model = ElasticNet(max_iter=10000)
+        param_grid = {
+            "model__alpha": np.logspace(-3, 3, 80),
+            "model__l1_ratio": np.arange(0,1.2,.2)
+        }
+    else:
+        raise ValueError("model_type must be 'ridge', 'lasso', or 'elastic'")
+
+    pipe = Pipeline([("preprocessing", ct), ("model", model)])
+    gscv = GridSearchCV(pipe, param_grid, cv=cv, scoring="neg_mean_squared_error")
+    gscv.fit(X_design, y)
+
+    best = gscv.best_estimator_
+    best_params = gscv.best_params_
+
+    mse = -cross_val_score(best, X_design, y, cv=5,scoring='neg_mean_squared_error').mean().round(3)
+    mse = np.mean(mse).round(3)
+
+    return {
+      "Model": model_type.title(),
+      "MSE": mse,
+      **best_params
+    }
+```
+
+```{python}
+X3 = df[["Hits","CRuns","CAtBat","CRBI","AtBat"]]
+cat = df[["Division"]]
+full = df[["Hits","CRuns","CAtBat","CRBI","AtBat","Division"]]
+y = df["Salary"]
+
+
+ct = ColumnTransformer([
+    ('num', StandardScaler(), X3.columns.tolist()),
+    ('cat', OneHotEncoder(drop='first', handle_unknown='ignore'), cat.columns.tolist()),
+], remainder='drop')
+
+n_num = len(X3.columns)  # how many numeric columns after 'num' step
+
+def add_num_cat_interactions(Z):
+    num = Z[:, :n_num]
+    cat = Z[:, n_num:]
+    inter = np.einsum('ij,ik->ijk', num, cat).reshape(Z.shape[0], -1)
+    return np.hstack([num, cat, inter])
+
+inter = FunctionTransformer(add_num_cat_interactions, feature_names_out='one-to-one')
+
+lr_pipeline3 = Pipeline([
+    ('preprocessing', ct),
+    ('interactions', inter),
+    ('linear_regression', LinearRegression())
+])
+
+X_join = X3.join(cat)
+linear_mse3 = -cross_val_score(lr_pipeline3, X_join, y, cv=5,scoring='neg_mean_squared_error').mean().round(3)
+linear_mse3
+
+results3 =[
+mse_output_int("lasso",X3,cat,y),
+mse_output_int("ridge",X3,cat,y),
+mse_output_int("elastic",X3,cat,y)
+]
+results3_df = pd.DataFrame(results3).sort_values("MSE")
+results3_df
+```
+
+The model that performed consistently well was the elastic for all 3 types of numeric + interaction, with the best model being the elastic net having an mse of 120,567.389.
+
+# Part 3. Discussion
+
+## A. Ridge
+
+```{python}
+Model1_df
+```
+
+```{python}
+ridge_pipeline1 = ridge_pipeline.fit(X1, y)
+
+ridge_coef1 = ridge_pipeline1.named_steps["ridge_regression"].coef_
+ridge_intercept = ridge_pipeline1.named_steps["ridge_regression"].intercept_
+
+coef_df = pd.DataFrame({
+    "Feature": X1.columns,
+    "Coefficient": ridge_coef1.round(3)
+})
+
+coef_df = pd.concat([
+    coef_df,
+    pd.DataFrame([{"Feature": "Intercept", "Coefficient": ridge_intercept.round(3)}])
+], ignore_index=True)
+
+coef_df
+```
+
+```{python}
+ridge_pipeline5 = ridge_pipeline.fit(X2, y)
+ridge_coef5 = ridge_pipeline5.named_steps["ridge_regression"].coef_
+coef_df_5num = pd.DataFrame({
+    "Feature": X2.columns,
+    "Coefficient": ridge_coef5.round(3)
+})
+
+
+coef_df_5num = pd.concat([
+    coef_df_5num,
+    pd.DataFrame([{"Feature": "Intercept", "Coefficient": ridge_intercept.round(3)}])
+], ignore_index=True)
+
+coef_df_5num
+
+```
+
+```{python}
+ct = ColumnTransformer([
+    ("num", StandardScaler(), X3.columns),
+    ("cat", OneHotEncoder(drop="first", handle_unknown="ignore"), cat.columns)
+], remainder="drop")
+
+n_num = len(X3.columns)
+
+def add_num_cat_interactions(Z):
+    num = Z[:, :n_num]
+    cat = Z[:, n_num:]
+    inter = np.einsum("ij,ik->ijk", num, cat).reshape(Z.shape[0], -1)
+    return np.hstack([num, cat, inter])
+
+inter = FunctionTransformer(add_num_cat_interactions, feature_names_out="one-to-one")
+
+ridge_interact_pipe = Pipeline([
+    ("preprocessing", ct),
+    ("interactions", inter),
+    ("ridge", Ridge(alpha=1.0))
+])
+
+ridge_interact_pipe.fit(X3.join(cat), y)
+
+ridge_model = ridge_interact_pipe.named_steps["ridge"]
+ridge_coef = ridge_model.coef_
+ridge_intercept = ridge_model.intercept_
+
+cat_dummies = ridge_interact_pipe.named_steps["preprocessing"] \
+    .named_transformers_["cat"].get_feature_names_out(cat.columns)
+
+feature_names = list(X3.columns) + list(cat_dummies)
+
+interaction_names = [f"{num}*{cat}" for num in X3.columns for cat in cat_dummies]
+all_features = feature_names + interaction_names
+
+coef_df_interact = pd.DataFrame({
+    "Feature": all_features,
+    "Coefficient": ridge_coef.round(3)
+})
+
+coef_df_interact = pd.concat([
+    coef_df_interact,
+    pd.DataFrame([{"Feature": "Intercept", "Coefficient": ridge_intercept.round(3)}])
+], ignore_index=True)
+
+coef_df_interact
+```
+
+In the one numeric model, Ridge gave a Hits coefficient of 196.75, compared to a much larger value in the OLS model showing that Ridge slightly shrinks the weight while keeping the same direction of effect.
+
+In the five numeric model, Ridge coefficients for Hits 310.608, CRuns 309.826, CAtBat (309.423), CRBI 227.475, and AtBat (180.754) were all smaller in magnitude than the corresponding OLS coefficients, which were larger and more variable.
+
+Finally, in the interaction model, Ridge again reduced the magnitude of many coefficients — for example, Hits 358.095 and CAtBat (346.988) — while still capturing key effects like the negative interaction of Hits×Division_W (200.291).
+
+This pattern makes sense because Ridge penalizes large coefficients, shrinking them toward zero to reduce overfitting and stabilize estimates, especially when predictors like Hits, Walks, and Years are correlated.
+
+## B. Lasso
+
+In the one numeric model, the lasso alpha was 6.27, while the 5 numeric model was 0.001. The interaction model was 7.47 Compared to the Lasso regression in part 1 of 2.197. 
+
+In the one numeric model, the lasso MSE was 173,047, while the 5 numeric model was 121,228.274. The interaction model MSE was 122,608.113. Compared to the Lasso regression in part 1 of 124,353. 
+
+I did not get the same results for for lasso alpha or mse as I fine tuned each time I ran a new model and the lasso model heavly penalized the interaction model, while not penalizing the full regression model as much. This could be due to all the interaction terms that were created. In the end, the MSE of the interaction model almost reached the level of the full lasso model in part one meaning we could remove some variables from the model and acheive similar results.
+
+## C. Elastic Net
+
+In every case the The MSE's for the elastic models were always lowest as they take the best of both Ridge and Lasso to make the optimal combination. In the Interaction models Elastic had the lowest MSE at 120,567.389	 while Ridge was second at 120,642.119 and lasso was last at 122,608.113. For 5 numeric models Elastic was lowest at 120,853.832, Ridge was second at 120,857.649 was last at 121228.274. For the one numeric variable Elastic was first with 172,569, Ridge was second again at 172,578. Lasso was again last at 173,047.
+
+# Part 4. Final Model
+
+The final model is the elastic net using the top 5 numeric coefficients along with the division categorical variable with their intereactions included. The best MSE was 120,567 and the model fits the full dataset very well as it covers a large portion of the data based on the the predicted salary compared to actual salary.
+
+```{python}
+ct = ColumnTransformer([
+    ("num", StandardScaler(), X3.columns.tolist()),
+    ("cat", OneHotEncoder(drop="first", handle_unknown="ignore"), cat.columns.tolist()),
+], remainder="drop")
+
+n_num = len(X3.columns)
+def add_num_cat_interactions(Z):
+    num = Z[:, :n_num]
+    dmy = Z[:, n_num:]
+    inter = np.einsum("ij,ik->ijk", num, dmy).reshape(Z.shape[0], -1)
+    return np.hstack([num, dmy, inter])
+
+inter_step = FunctionTransformer(add_num_cat_interactions, feature_names_out="one-to-one")
+
+
+enet = ElasticNet(max_iter=10000)
+param_grid = {
+    "model__alpha":    np.logspace(-3, 3, 80),
+    "model__l1_ratio": np.arange(0, 1.2, 0.2),
+}
+
+pipe = Pipeline([
+    ("prep", ct),
+    ("inter", inter_step),
+    ("model", enet),
+])
+
+X_join = X3.join(cat)
+
+gscv = GridSearchCV(pipe, param_grid, cv=5, scoring="neg_mean_squared_error")
+gscv.fit(X_join, y)
+y_pred = gscv.predict(X_join)
+
+
+plot_df = pd.DataFrame({"Actual": y, "Predicted": y_pred})
+
+(ggplot(plot_df, aes("Actual", "Predicted"))
+ + geom_point(alpha=0.6)
+ + geom_abline(slope=1, intercept=0, linetype="dashed")
+ + coord_equal()
+ + labs(title="Elastic Net Interactions: Actual vs Predicted Salary",
+        x="Actual Salary", y="Predicted Salary")
+)
+```
+
+
