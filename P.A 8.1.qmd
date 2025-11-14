@@ -1,0 +1,194 @@
+---
+title: Palmer Penguins Modeling
+jupyter: python3
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+
+Import the Palmer Penguins dataset and print out the first few rows.
+
+Suppose we want to predict `bill_depth_mm` using the other variables in the dataset.
+
+**Dummify** all variables that require this.
+
+
+```{python}
+# Code Here
+import pandas as pd
+import numpy as np
+from sklearn.pipeline import Pipeline
+from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.tree import DecisionTreeClassifier
+from palmerpenguins import load_penguins
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.compose import make_column_selector, ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.tree import plot_tree
+from plotnine import *
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_validate, KFold
+from sklearn import tree
+import matplotlib.pyplot as plt
+```
+
+```{python}
+penguins = load_penguins()
+penguins = penguins.dropna()
+penguins
+```
+
+```{python}
+# Best Multiple Model
+X = penguins.drop(["bill_depth_mm"],axis=1)
+y = penguins["bill_depth_mm"]
+
+ct_multi = ColumnTransformer(
+    [
+        ("dummify", OneHotEncoder(sparse_output=False, handle_unknown="ignore"),
+         make_column_selector(dtype_include=object)),
+        ("standardize", StandardScaler(),
+         make_column_selector(dtype_include=np.number)),
+    ],
+    remainder="drop"
+)
+
+multiple_model = Pipeline([
+    ("preprocessing", ct_multi),
+    ("linreg", LinearRegression())
+])
+```
+
+```{python}
+#KNN 2 and 5
+ct_knn = ColumnTransformer(
+  [
+    ("dummify",
+    OneHotEncoder(sparse_output = False, handle_unknown='ignore'),
+    make_column_selector(dtype_include=object)),
+    ("standardize",
+    StandardScaler(),
+    make_column_selector(dtype_include=np.number))
+  ],
+  remainder="drop"
+)
+
+k_neighbors_pipeline2 = Pipeline(
+  [
+    ("preprocessing", ct_knn),
+    ("knn_regressor", KNeighborsRegressor(n_neighbors=2))
+  ]
+)
+
+k_neighbors_pipeline5 = Pipeline(
+  [
+    ("preprocessing", ct_knn),
+    ("knn_regressor", KNeighborsRegressor(n_neighbors=5))
+  ]
+)
+```
+
+```{python}
+# Decision Tree
+ct_dt = ColumnTransformer(
+  [
+    ("dummify",
+    OneHotEncoder(sparse_output = False, handle_unknown='ignore'),
+    make_column_selector(dtype_include=object)),
+  ],
+  remainder = "drop"
+)
+
+decision_pipeline = Pipeline(
+  [
+    ("preprocessing", ct_dt),
+    ("Decision Tree", DecisionTreeRegressor(max_depth=2))
+  ]
+)
+```
+
+Let's use the other variables to predict `bill_depth_mm`. Prepare your data and fit the following models on the entire dataset:
+
+* Your best multiple linear regression model from before
+* Two kNN models (for different values of K)
+* A decision tree model
+
+Create a plot like the right plot of Fig 1. in our `Model Validation` chapter with the training and test error plotted for each of your four models.
+
+Which of your models was best?
+
+```{python}
+models = {
+    "Multiple": multiple_model,
+    "KNN=2": k_neighbors_pipeline2,
+    "KNN=5": k_neighbors_pipeline5,
+    "DT": decision_pipeline,
+
+}
+
+cv = KFold(n_splits=5, shuffle=True, random_state=321)
+rows = []
+for name, est in models.items():
+    scores = cross_validate(
+        est, X, y,
+        cv=cv,
+        scoring="neg_root_mean_squared_error",
+        return_train_score=True
+    )
+    rmse_train = -np.mean(scores["train_score"])
+    rmse_test  = -np.mean(scores["test_score"])
+    rows.append({"Model": name, "Train RMSE": rmse_train, "Test RMSE": rmse_test})
+
+df = pd.DataFrame(rows)
+
+df_long = df.melt(id_vars="Model", var_name="type", value_name="RMSE")
+
+(
+    ggplot(df_long, aes(x="Model", y="RMSE", color="type", group="type"))
+    + geom_line()
+    + geom_point()
+)
+```
+
+Based on RMSE, the multiple linear model had the lowest drop for test data with a RMSE of 0.8. Also, KNN=2 had the lowest RMSE for training data but the highest for Test meaning it overfit the model by a significant margin.
+
+```{python}
+multiple_model.fit(X, y)
+k_neighbors_pipeline2.fit(X, y)
+k_neighbors_pipeline5.fit(X, y)
+dt = decision_pipeline.fit(X, y)
+```
+
+```{python}
+feat_names = decision_pipeline.named_steps["preprocessing"].get_feature_names_out()
+dt_est = decision_pipeline.named_steps["Decision Tree"]
+
+plt.figure(figsize=(10,10))
+tree.plot_tree(
+    dt_est,
+    feature_names=feat_names,
+    filled=True,
+    rounded=True,
+    impurity=False,
+    fontsize=9
+)
+plt.show()
+plt.close()
+```
+
+```{python}
+penguins["Multiple predict"] = multiple_model.predict(X).round(2)
+penguins["KNN=2 predict"] = k_neighbors_pipeline2.predict(X)
+penguins["KNN=5 predict"] = k_neighbors_pipeline5.predict(X)
+penguins["DT predict"] = dt.predict(X).round(2)
+penguins["Avg Predict"] = penguins[["Multiple predict","KNN=2 predict","KNN=5 predict","DT predict"]].mean(axis=1).round(2)
+penguins["Avg Diff"] = penguins["bill_depth_mm"] - penguins["Avg Predict"]
+predict = penguins.copy()
+predict = predict[["bill_depth_mm","Multiple predict","KNN=2 predict","KNN=5 predict","DT predict","Avg Predict","Avg Diff"]]
+predict
+```
+
