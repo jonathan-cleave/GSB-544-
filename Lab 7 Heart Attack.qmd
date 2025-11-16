@@ -1,0 +1,476 @@
+---
+title: "Lab 7 Heart Attack"
+jupyter: python3
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+```{python}
+import pandas as pd
+import numpy as np
+from sklearn.pipeline import Pipeline
+from sklearn.neighbors import KNeighborsRegressor, KNeighborsClassifier
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.model_selection import *
+from sklearn.compose import make_column_selector, ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, label_binarize
+from sklearn.tree import plot_tree
+from plotnine import *
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_validate, KFold
+from sklearn.model_selection import train_test_split, KFold, cross_validate
+from sklearn.metrics import *
+import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report, accuracy_score, RocCurveDisplay
+import math
+from sklearn.model_selection import GridSearchCV
+from sklearn import tree
+```
+
+```{python}
+ha = pd.read_csv("https://www.dropbox.com/s/aohbr6yb9ifmc8w/heart_attack.csv?dl=1")
+ha.head()
+```
+
+# Summarizing and describing Data
+```{python}
+pd.DataFrame(ha.describe())
+```
+
+```{python}
+pd.DataFrame(ha["output"].value_counts(normalize=True))
+```
+
+```{python}
+pd.DataFrame(ha["cp"].value_counts(normalize=True))
+```
+
+```{python}
+ha.groupby("output", as_index=False)[["thalach"]].mean()
+```
+
+```{python}
+X_train,X_test,y_train,y_test = train_test_split(ha.drop("output",axis=1), ha["output"], test_size=0.5,random_state=321)
+```
+
+# Part One: Fitting Models
+
+## Q1: KNN
+
+```{python}
+# Optimal KNN model
+ct_knn = ColumnTransformer(
+  [
+    ("standardize",
+    StandardScaler(),
+    make_column_selector(dtype_include=np.number))
+  ],
+  remainder="drop"
+)
+
+k_neighbors_pipeline = Pipeline(
+  [
+    ("preprocessing", ct_knn),
+    ("KNN", KNeighborsClassifier())
+  ]
+)
+paramGrid = {"KNN__n_neighbors": range(1,21)}
+search = GridSearchCV(k_neighbors_pipeline, paramGrid,cv=10,scoring="roc_auc")
+```
+
+```{python}
+KNN_fit = search.fit(X_train, y_train)
+pd.DataFrame(search.cv_results_).sort_values("rank_test_score")[["param_KNN__n_neighbors","mean_test_score","rank_test_score"]]
+```
+
+The optimal number of neighbors is 14.
+
+```{python}
+KNN_fit = search.fit(X_train, y_train)
+KNN_fit.best_estimator_
+```
+
+```{python}
+ConfusionMatrixDisplay.from_estimator(KNN_fit,X_test,y_test,cmap=plt.cm.Blues)
+```
+
+```{python}
+# Classification Report
+testPredictions = KNN_fit.predict(X_test)
+cm = confusion_matrix(y_test, testPredictions)
+tn, fp, fn, tp = cm.ravel()
+
+accuracyKNN_t = accuracy_score(y_test, testPredictions)
+specificityKNN_t = tn / (tn + fp)
+recallKNN_t = recall_score(y_test, testPredictions)
+precisionKNN_t = precision_score(y_test, testPredictions)
+
+print("KNN")
+print(f"Accuracy: {accuracyKNN_t:.2f}")
+print(f"Specificity: {specificityKNN_t:.2f}")
+print(f"Recall: {recallKNN_t:.2f}")
+print(f"Precision: {precisionKNN_t:.2f}")
+```
+
+```{python}
+testPredictionProbs = KNN_fit.predict_proba(X_test)
+rocKNN_t = roc_auc_score(y_test, testPredictionProbs[:,1])
+print(f"The optimal KNN model produces a ROC_AUC score of {rocKNN_t:.4f}")
+```
+
+## Q2: Logistic Regression
+
+```{python}
+# Optimal Logistic Regression Model
+ct_logistic = ColumnTransformer(
+  [
+    ("standardize",
+    StandardScaler(),
+    make_column_selector(dtype_include=np.number))
+  ],
+  remainder="drop"
+)
+
+logistic_pipeline = Pipeline(
+  [
+    ("preprocessing", ct_logistic),
+    ("logistic", LogisticRegression(solver='liblinear'))
+  ]
+)
+
+paramGrid_logistic = {"logistic__C": np.logspace(-3, 3, 7)}
+
+search_logistic = GridSearchCV(logistic_pipeline, paramGrid_logistic, cv=10, scoring="roc_auc")
+
+logistic_fit = search_logistic.fit(X_train, y_train)
+
+pd.DataFrame(logistic_fit.cv_results_).sort_values("rank_test_score")[["param_logistic__C","mean_test_score","rank_test_score"]]
+```
+
+The optimal logistic parameter is 1.00
+
+```{python}
+ConfusionMatrixDisplay.from_estimator(logistic_fit, X_test, y_test, cmap=plt.cm.Blues)
+```
+
+```{python}
+# Classification Report
+testPredictions = logistic_fit.predict(X_test)
+cm = confusion_matrix(y_test, testPredictions)
+tn, fp, fn, tp = cm.ravel()
+
+accuracyLog_t = accuracy_score(y_test, testPredictions)
+specificityLog_t = tn / (tn + fp)
+recallLog_t = recall_score(y_test, testPredictions)
+precisionLog_t = precision_score(y_test, testPredictions)
+
+print("Logistic")
+print(f"Accuracy: {accuracyLog_t:.2f}")
+print(f"Specificity: {specificityLog_t:.2f}")
+print(f"Recall: {recallLog_t:.2f}")
+print(f"Precision: {precisionLog_t:.2f}")
+```
+
+```{python}
+testPredictionProbs = logistic_fit.predict_proba(X_test)
+rocLog_t = roc_auc_score(y_test, testPredictionProbs[:,1])
+print(f"The optimal Logistic model produces a ROC_AUC score of {rocLog_t:.4f}")
+
+```
+
+## Q3: Decision Tree
+
+```{python}
+# Optimal Decision Tree Model
+
+CT_model = DecisionTreeClassifier()
+
+default_tree = CT_model.fit(X_train, y_train)
+```
+
+```{python}
+paramGrid = {"ccp_alpha": CT_model.cost_complexity_pruning_path(X_train,y_train).ccp_alphas,
+"max_depth": range(1,11),
+"min_samples_leaf": range(1,11)}
+
+search = GridSearchCV(CT_model, paramGrid, cv=10, scoring="roc_auc", n_jobs=-1)
+```
+
+```{python}
+pruned_tree = search.fit(X_train, y_train)
+pd.DataFrame(pruned_tree.cv_results_).sort_values("rank_test_score")[["param_ccp_alpha","param_max_depth","param_min_samples_leaf","mean_test_score","rank_test_score"]].head()
+```
+
+The optimal Decision Tree has a max depth of 2 and minimum sample leaves of 10 with a parameter alpha of 0.0098.
+
+```{python}
+pruned_tree.best_estimator_
+```
+
+```{python}
+plt.figure(figsize=(10,10))
+tree.plot_tree(pruned_tree.best_estimator_, feature_names=X_train.columns,class_names=pruned_tree.classes_.astype("str"),filled=True,rounded=True,fontsize=10)
+```
+
+```{python}
+ConfusionMatrixDisplay.from_estimator(pruned_tree, X_test, y_test, cmap=plt.cm.Blues)
+```
+
+```{python}
+# Classification Report
+testPredictions = pruned_tree.predict(X_test)
+cm = confusion_matrix(y_test, testPredictions)
+tn, fp, fn, tp = cm.ravel()
+
+accuracyDT_t = accuracy_score(y_test, testPredictions)
+specificityDT_t = tn / (tn + fp)
+recallDT_t = recall_score(y_test, testPredictions)
+precisionDT_t = precision_score(y_test, testPredictions)
+
+print("Decision Tree")
+print(f"Accuracy: {accuracyDT_t:.2f}")
+print(f"Specificity: {specificityDT_t:.2f}")
+print(f"Recall: {recallDT_t:.2f}")
+print(f"Precision: {precisionDT_t:.2f}")
+```
+
+```{python}
+testPredictionProbs = pruned_tree.predict_proba(X_test)
+rocDT_t = roc_auc_score(y_test, testPredictionProbs[:,1])
+print(f"The optimal Logistic model produces a ROC_AUC score of {rocDT_t:.4f}")
+```
+
+## Q4: Interpretation
+
+```{python}
+print("Logistic Coefficients")
+coef_log = pd.DataFrame(logistic_fit.best_estimator_.named_steps["logistic"].coef_, columns=X_train.columns)
+coef_log = coef_log.T
+coef_log.columns = ["Coefficient"]
+coef_log["Odds"] = np.exp(coef_log["Coefficient"])
+coef_log = coef_log.reindex(coef_log["Coefficient"].abs().sort_values(ascending=False).index)
+
+coef_log
+```
+
+Based on the standardized Logistic coefficients, for every 1 unit increase in Maximum heart rate achieved during exercise, the odds of heart attack increases by 2.8 times. Chest pain also indicates a strong increase in heart attack risk at 2.10 times. While sex is negatively correlated with heart attacks meaning the risk is different for males vs females.
+
+```{python}
+# Coefficients
+print("Decision Tree Coefficients")
+coef_dt = pd.DataFrame([pruned_tree.best_estimator_.feature_importances_], columns=X_train.columns)
+coef_dt = coef_dt.T
+coef_dt.columns = ["Coefficient"]
+coef_dt = coef_dt.reindex(coef_dt["Coefficient"].abs().sort_values(ascending=False).index)
+coef_dt
+```
+
+Based on the decision tree model, the 2 most important variables are the maximum heart rate and the chest pain type. With thalach contributing about 68% of the models total decision making power while Chest pain made up 32% of total importance
+
+## Q5: ROC Curve
+
+```{python}
+models = {
+    "KNN": KNN_fit,
+    "Logistic Regression": logistic_fit,
+    "Decision Tree": pruned_tree
+}
+```
+
+```{python}
+fitted = {name: model.fit(X_train, y_train) for name, model in models.items()}
+
+plt.figure(figsize=(8, 8))
+ax = plt.gca()
+
+for name, model in fitted.items():
+    y_proba = model.predict_proba(X_test)[:, 1]
+    RocCurveDisplay.from_predictions(y_test, y_proba, name=name, ax=ax, drop_intermediate=True)
+
+ax.plot([0,1],[0,1],"--",color="gray",lw=1)
+ax.set_title("ROC Curve (All Models)")
+plt.tight_layout()
+plt.show()
+```
+
+# Part Two: Metrics
+
+```{python}
+models  = ["KNN", "Logistic", "Decision"]
+metrics = ["Specificity", "Precision", "Recall"]
+
+Train = [specificityKNN_t, specificityLog_t, specificityDT_t, precisionKNN_t, precisionLog_t, precisionDT_t, recallKNN_t, recallLog_t, recallDT_t]
+
+
+Model  = list(np.tile(models, 3))
+Metric = list(np.repeat(metrics, 3))
+
+metric_df = pd.DataFrame({"Model": Model, "Metric": Metric, "Train": Train}).round(4)
+metric_df
+```
+
+For Recall, KNN and Logistic regression had the same amount of observations predicted to be Class A at 0.8657.
+
+For Precision, Logistic had the highest number of true class A observaitions classifed correctly at 0.7160
+
+For Specificity the Logistic model had the higest number of observations classfied as Not Class A, 0.6714 were truley not Class A.
+
+# Part Three: Discussion
+
+## Q1
+To minimize false negatives to not miss patients at risk, you chould choose the model with the highest recall value which would be either the KNN or Logistic model because we can expect these models to correctly identify 86.6% of true heart attack risks to minimize missed diagnoses.
+
+## Q2
+To mimize false positives which are patients flagged as high risk but are actually not, you should choose the model with the highest precision. This will be Logistic model to help allocate limited hospital beds efficiently and we expect 71.6% of patients will truly be at high risk.
+
+## Q3
+If the hospital wants to understand which biological measures are most associated with risk then the decision tree is the best choice as it shows which features the models splits first and which are the most influential. Along with it being visaully interpretable so medical researchers can see which features drive risk and in what order. In order to prove causality we would want our true positives to be highest therefore recall is the best metric to look at and we would expect a 0.81 recall for decision trees.
+
+## Q4
+If the hospital wants to be able to compare their diagnoses with algorithm predictions then the overall best model would be KNN as it predicts based on similar past patients and each predicion can be explained by seeing which nearby cases influenced it. Accuracy would be a good metric to base it off of as the more accurate the model the closer the prediction to actual. For KNN we can expect accuracy of 70%.
+
+# Part Four: Validation
+
+```{python}
+ha_validation = pd.read_csv("https://www.dropbox.com/s/jkwqdiyx6o6oad0/heart_attack_validation.csv?dl=1")
+ha_validation.head(10)
+```
+
+```{python}
+X_valid = ha_validation.drop("output", axis=1)
+y_valid = ha_validation["output"]
+
+ha_validation["KNN Predict"] = KNN_fit.predict(X_valid)
+ha_validation["Logistic Predict"] = logistic_fit.predict(X_valid)
+ha_validation["Decision Predict"] = pruned_tree.predict(X_valid)
+
+ha_validation.head(10)
+```
+
+```{python}
+# Confusion Matrixies
+print("KNN Matrix")
+print(ConfusionMatrixDisplay.from_estimator(KNN_fit,X_valid,y_valid,cmap=plt.cm.Blues))
+```
+
+```{python}
+testPredictions = KNN_fit.predict(X_valid)
+cm = confusion_matrix(y_valid, testPredictions)
+tn, fp, fn, tp = cm.ravel()
+
+accuracyKNN_v = accuracy_score(y_valid, testPredictions)
+specificityKNN_v = tn / (tn + fp)
+recallKNN_v = recall_score(y_valid, testPredictions)
+precisionKNN_v = precision_score(y_valid, testPredictions)
+
+print("KNN Validation")
+print(f"Accuracy: {accuracyKNN_v:.2f}")
+print(f"Specificity: {specificityKNN_v:.2f}")
+print(f"Recall: {recallKNN_v:.2f}")
+print(f"Precision: {precisionKNN_v:.2f}")
+```
+
+```{python}
+testPredictionProbs = KNN_fit.predict_proba(X_valid)
+rocKNN_v = roc_auc_score(y_valid, testPredictionProbs[:,1])
+print(f"The validated KNN model produces a ROC_AUC score of {rocKNN_v:.4f}")
+
+```
+
+```{python}
+print("Logistic Matrix")
+ConfusionMatrixDisplay.from_estimator(logistic_fit, X_valid, y_valid,cmap=plt.cm.Blues)
+```
+
+```{python}
+testPredictions = logistic_fit.predict(X_valid)
+cm = confusion_matrix(y_valid, testPredictions)
+tn, fp, fn, tp = cm.ravel()
+
+accuracyLog_v = accuracy_score(y_valid, testPredictions)
+specificityLog_v = tn / (tn + fp)
+recallLog_v = recall_score(y_valid, testPredictions)
+precisionLog_v = precision_score(y_valid, testPredictions)
+
+print("Logistic Regression Validation")
+print(f"Accuracy: {accuracyLog_v:.2f}")
+print(f"Specificity: {specificityLog_v:.2f}")
+print(f"Recall: {recallLog_v:.2f}")
+print(f"Precision: {precisionLog_v:.2f}")
+```
+
+```{python}
+testPredictionProbs = logistic_fit.predict_proba(X_valid)
+rocLog_v = roc_auc_score(y_valid, testPredictionProbs[:,1])
+print(f"The validated Logistic model produces a ROC_AUC score of {rocLog_v:.4f}")
+
+```
+
+```{python}
+print("Decision Matrix")
+ConfusionMatrixDisplay.from_estimator(pruned_tree, X_valid ,y_valid, cmap=plt.cm.Blues)
+```
+
+```{python}
+testPredictions = pruned_tree.predict(X_valid)
+cm = confusion_matrix(y_valid, testPredictions)
+tn, fp, fn, tp = cm.ravel()
+
+accuracyDT_v = accuracy_score(y_valid, testPredictions)
+specificityDT_v = tn / (tn + fp)
+recallDT_v = recall_score(y_valid, testPredictions)
+precisionDT_v = precision_score(y_valid, testPredictions)
+
+print("Decision Tree Validation")
+print(f"Accuracy: {accuracyDT_v:.2f}")
+print(f"Specificity: {specificityDT_v:.2f}")
+print(f"Recall: {recallDT_v:.2f}")
+print(f"Precision: {precisionDT_v:.2f}")
+```
+
+```{python}
+testPredictionProbs = pruned_tree.predict_proba(X_test)
+rocDT_v = roc_auc_score(y_test, testPredictionProbs[:,1])
+print(f"The validated Logistic model produces a ROC_AUC score of {rocDT_v:.4f}")
+
+```
+
+```{python}
+models  = ["KNN", "Logistic", "Decision"]
+metrics = ["ROC", "Precision", "Recall"]
+
+Train = [rocKNN_t, rocLog_t, rocDT_t, precisionKNN_t, precisionLog_t, precisionDT_t, recallKNN_t, recallLog_t, recallDT_t]
+Valid = [rocKNN_v, rocLog_v, rocDT_v, precisionKNN_v, precisionLog_v, precisionDT_v, recallKNN_v, recallLog_v, recallDT_v]
+
+
+Model  = list(np.tile(models, 3))
+Metric = list(np.repeat(metrics, 3))
+
+df = pd.DataFrame({"Model": Model, "Metric": Metric, "Train": Train, "Validation": Valid}).round(4)
+df
+```
+
+Yes overall our measures of model success went up in the validation set for KNN ROC (0.82 to 0.94) and Logistic ROC (0.86 to 0.90) and stayed the same for Decision tree. All models precision went up with the highest being KNN at 0.89 from 0.64. Along with Decision being the highest for recall at 0.89 while KNN and Logistic did similar. Meaning that we can expect similar performance from our models even on new data. 
+
+# Part Five: Cohen's Kappa
+
+```{python}
+kappa_knn_t = cohen_kappa_score(y_train, KNN_fit.predict(X_train))
+kappa_knn_v = cohen_kappa_score(y_valid, KNN_fit.predict(X_valid))
+
+kappa_log_t = cohen_kappa_score(y_train, logistic_fit.predict(X_train))
+kappa_log_v = cohen_kappa_score(y_valid, logistic_fit.predict(X_valid))
+
+kappa_dt_t = cohen_kappa_score(y_train, pruned_tree.predict(X_train))
+kappa_dt_v = cohen_kappa_score(y_valid, pruned_tree.predict(X_valid))
+
+df_kappa = pd.DataFrame({"Model": ["KNN", "Logistic", "Decision"], "Train Kappa": [kappa_knn_t, kappa_log_t, kappa_dt_t],"Valid Kappa": [kappa_knn_v, kappa_log_v,kappa_dt_v]})
+df_kappa
+```
+
+Based on Cohen's Kappa it showed that on the training Dataset, the logistic model showed the best Kappa, but when using the validation set, Kappa for KNN increased significantly while all other models decreased. This means that KNN generalizes best and it captures true patterns rather than overfitting. Adding this new measure does change some conclusions of total best model as Logistic seemed to have the highest ROC and other metrics, but may be overfitting compared to KNN which was still able to perform well on validation set and even improve on Kappa from 0.548 to 0.648.This makes sense because Cohen’s Kappa accounts for agreement occurring by chance and is especially valuable when class distributions are imbalanced, making for a more reliable measure of how well each model truly classifies between patients at risk and not at risk.
