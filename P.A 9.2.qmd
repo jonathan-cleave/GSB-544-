@@ -1,0 +1,335 @@
+---
+title: PA 9.2
+jupyter: python3
+format:
+  html:
+    embed-resources: true
+    theme: Zephyr
+---
+
+
+Our dataset consists of clinical data from patients who entered the hospital complaining of chest pain ("angina") during exercise.  The information collected includes:
+
+* `age` : Age of the patient
+
+* `sex` : Sex of the patient
+
+* `cp` : Chest Pain type
+
+    + Value 0: asymptomatic
+    + Value 1: typical angina
+    + Value 2: atypical angina
+    + Value 3: non-anginal pain
+   
+    
+* `trtbps` : resting blood pressure (in mm Hg)
+
+* `chol` : cholesterol in mg/dl fetched via BMI sensor
+
+* `restecg` : resting electrocardiographic results
+
+    + Value 0: normal
+    + Value 1: having ST-T wave abnormality (T wave inversions and/or ST elevation or depression of > 0.05 mV)
+    + Value 2: showing probable or definite left ventricular hypertrophy by Estes' criteria
+
+* `thalach` : maximum heart rate achieved during exercise
+
+* `output` : the doctor's diagnosis of whether the patient is at risk for a heart attack
+    + 0 = not at risk of heart attack
+    + 1 = at risk of heart attack
+
+```{python}
+## library imports here
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.pipeline import Pipeline
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.preprocessing import *
+from sklearn.model_selection import *
+from sklearn.metrics import *
+from sklearn.compose import *
+from sklearn.tree import *
+from sklearn.svm import *
+import sklearn.discriminant_analysis
+```
+
+```{python}
+ha = pd.read_csv("https://www.dropbox.com/s/aohbr6yb9ifmc8w/heart_attack.csv?dl=1")
+ha.head()
+```
+
+## Q1: Natural Multiclass Models
+
+Fit a multiclass KNN, Decision Tree, and LDA for the heart disease data; this time predicting the type of chest pain (categories 0 - 3) that a patient experiences.  For the decision tree, plot the fitted tree, and interpret the first couple splits.
+
+```{python}
+X = ha[["age","chol","trtbps"]]
+y = ha["cp"]
+
+cv = 5
+X_train,X_test,y_train,y_test = train_test_split(X,y,test_size=0.3,random_state=321)
+```
+
+```{python}
+ct_knn = ColumnTransformer([
+    ("standardize", StandardScaler(), make_column_selector(dtype_include=np.number))
+])
+
+pipeline_knn = Pipeline([
+    ("ct", ct_knn),
+    ("knn", KNeighborsClassifier())
+])
+
+paramGrid = {"knn__n_neighbors": range(1,11)}
+search = GridSearchCV(pipeline_knn, paramGrid,cv=cv,scoring="accuracy")
+```
+
+```{python}
+KNN_fit = search.fit(X_train, y_train)
+pd.DataFrame(search.cv_results_).sort_values("rank_test_score")[["param_knn__n_neighbors","mean_test_score","rank_test_score"]]
+```
+
+```{python}
+testPredictions_knn = KNN_fit.predict(X_test)
+
+cm = confusion_matrix(y_test, testPredictions_knn)
+
+accuracyKNN = accuracy_score(y_test, testPredictions_knn)
+recallKNN = recall_score(y_test, testPredictions_knn, average='weighted')
+precisionKNN = precision_score(y_test, testPredictions_knn, average='weighted')
+f1KNN = f1_score(y_test, testPredictions_knn, average='weighted')
+
+print("KNN")
+print(f"Accuracy: {accuracyKNN:.2f}")
+print(f"Recall: {recallKNN:.2f}")
+print(f"Precision: {precisionKNN:.2f}")
+print(f"F1 Score: {f1KNN:.2f}")
+```
+
+```{python}
+testPredictionProbs = KNN_fit.predict_proba(X_test)
+rocKNN = roc_auc_score(y_test, testPredictionProbs, multi_class='ovr', average='weighted')
+print(f"The optimal KNN model produces a ROC_AUC score of {rocKNN:.4f}")
+```
+
+```{python}
+# DT Model
+ct_dt = ColumnTransformer([
+    ("standardize", StandardScaler(), make_column_selector(dtype_include=np.number))
+])
+
+pipeline_dt = Pipeline([
+    ("ct", ct_dt),
+    ("model", DecisionTreeClassifier(max_depth=2))
+])
+
+
+dt_Model = pipeline_dt.fit(X_train, y_train)
+```
+
+```{python}
+plot_tree(dt_Model.named_steps["model"], feature_names=["trtbps", "chol", "age"], filled=True)
+plt.figure(figsize=(10,10))
+plt.show()
+```
+
+The decision tree first divides patients based on their resting blood pressure  trtbps.
+If a patient’s trtbps is less than or equal to -0.37, they follow the left branch; otherwise, they go to the right.
+
+Among those with lower blood pressure ≤ -0.37, the tree splits again at trtbps ≤ -0.588. Patients below this threshold tend to fall into a group with more mixed outcomes, while those above -0.588 form a smaller, more consistent group with clearer predictions.
+
+On the other side, for patients with higher blood pressure > -0.37, the next most important factor is cholesterol chol. Those with cholesterol ≤ 3.032 form the majority of this branch, whereas patients with cholesterol above 3.032 are a small, homogeneous group with similar outcomes.
+
+```{python}
+testPredictions_dt = dt_Model.predict(X_test)
+
+cm = confusion_matrix(y_test, testPredictions_dt)
+
+accuracyDT = accuracy_score(y_test, testPredictions_dt)
+recallDT = recall_score(y_test, testPredictions_dt, average='weighted')
+precisionDT = precision_score(y_test, testPredictions_dt, average='weighted')
+f1DT = f1_score(y_test, testPredictions_dt, average='weighted')
+
+print("DT")
+print(f"Accuracy: {accuracyDT:.2f}")
+print(f"Recall: {recallDT:.2f}")
+print(f"Precision: {precisionDT:.2f}")
+print(f"F1 Score: {f1DT:.2f}")
+```
+
+```{python}
+testPredictionProbs = dt_Model.predict_proba(X_test)
+rocDT = roc_auc_score(y_test, testPredictionProbs, multi_class='ovr', average='weighted')
+print(f"The optimal KNN model produces a ROC_AUC score of {rocDT:.4f}")
+```
+
+```{python}
+#LDA Model
+ct_lda = ColumnTransformer([
+    ("standardize", StandardScaler(), make_column_selector(dtype_include=np.number))
+])
+
+pipeline_lda = Pipeline([
+    ("ct", ct_dt),
+    ('lda', sklearn.discriminant_analysis.LinearDiscriminantAnalysis())
+])
+
+
+lda_Model = pipeline_lda.fit(X_train, y_train)
+```
+
+```{python}
+testPredictions_lda = lda_Model.predict(X_test)
+
+cm = confusion_matrix(y_test, testPredictions_lda)
+
+accuracyLDA = accuracy_score(y_test, testPredictions_lda)
+recallLDA = recall_score(y_test, testPredictions_lda, average='weighted')
+precisionLDA = precision_score(y_test, testPredictions_lda, average='weighted')
+f1LDA = f1_score(y_test, testPredictions_lda, average='weighted')
+
+print("LDA")
+print(f"Accuracy: {accuracyLDA:.2f}")
+print(f"Recall: {recallLDA:.2f}")
+print(f"Precision: {precisionLDA:.2f}")
+print(f"F1 Score: {f1LDA:.2f}")
+```
+
+```{python}
+testPredictionProbs = lda_Model.predict_proba(X_test)
+rocLDA = roc_auc_score(y_test, testPredictionProbs, multi_class='ovr', average='weighted')
+print(f"The optimal KNN model produces a ROC_AUC score of {rocLDA:.4f}")
+```
+
+## Q2:  OvR
+
+Create a new column in the `ha` dataset called `cp_is_3`, which is equal to `1` if the `cp` variable is equal to `3` and `0` otherwise.
+
+Then, fit a Logistic Regression to predict this new target, and report the **F1 Score**.
+
+Repeat for the other three `cp` categories.  Which category was the OvR approach best at distinguishing?
+
+```{python}
+ha["cp_is_3"] = np.where(ha["cp"] == 3, 1, 0)
+ha["cp_is_2"] = np.where(ha["cp"] == 2, 1, 0)
+ha["cp_is_1"] = np.where(ha["cp"] == 1, 1, 0)
+ha["cpPis_0"] = np.where(ha["cp"] == 0, 1, 0)
+
+y3 = ha["cp_is_3"]
+y2 = ha["cp_is_2"]
+y1 = ha["cp_is_1"]
+y0 = ha["cpPis_0"]
+
+X_train,X_test,y_train,y_test = train_test_split(X,y2,test_size=0.3,random_state=321)
+```
+
+```{python}
+# Logistic
+ct_log = ColumnTransformer([
+    ("standardize", StandardScaler(), make_column_selector(dtype_include=np.number))
+])
+
+
+
+pipeline_log = Pipeline([
+  ("logistic_regression", LogisticRegression())]
+)
+
+log_Model = pipeline_log.fit(X_train, y_train)
+```
+
+```{python}
+testPredictions_log = log_Model.predict(X_test)
+
+cm = confusion_matrix(y_test, testPredictions_lda)
+
+f1LOG = f1_score(y_test, testPredictions_log, average='weighted')
+
+print("Logistic 1")
+print(f"F1 Score: {f1LOG:.2f}")
+```
+
+```{python}
+def run_ovr(y):
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=321)
+
+
+    ct = ColumnTransformer([
+        ("standardize", StandardScaler(), make_column_selector(dtype_include="number"))
+    ])
+
+    pipeline_log = Pipeline([
+        ("logistic_regression", LogisticRegression())
+    ])
+
+    log_Model = pipeline_log.fit(X_train, y_train)
+
+    testPredictions_log = log_Model.predict(X_test)
+
+    f1 = np.round(f1_score(y_test, testPredictions_log, average='weighted'),4)
+
+    return f1
+```
+
+```{python}
+print(f"Y2 {run_ovr(y2)}")
+print(f"Y3 {run_ovr(y3)}")
+print(f"y1 {run_ovr(y1)}")
+print(f"y0 {run_ovr(y0)}")
+```
+
+CP 3 had the higest F1 score of 0.8386 meaning it does the best job at balancing both precision and recall and is best at distinguishing.
+
+## Q3: OvO
+
+Reduce your dataset to only the `0` and `1` types of chest pain.
+
+Then, fit a Logistic Regression to predict between the two groups, and report the **ROC-AUC**.  
+
+Repeat comparing category `0` to `2` and `3`.  Which pair was the OvO approach best at distinguishing?
+
+```{python}
+y1 = ha[ha["cp"].isin([0,1])]["cp"].replace({0:0, 1:1})
+y2 = ha[ha["cp"].isin([0,2])]["cp"].replace({0:0, 2:1})
+y3 = ha[ha["cp"].isin([0,3])]["cp"].replace({0:0, 3:1})
+```
+
+```{python}
+def run_ovo(y):
+
+    X_sub = X.loc[y.index]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_sub, y, test_size=0.3, random_state=321
+    )
+
+    ct = ColumnTransformer([
+        ("standardize", StandardScaler(), make_column_selector(dtype_include="number"))
+    ])
+
+    pipeline_log = Pipeline([
+        ("preprocess", ct),
+        ("logistic_regression", LogisticRegression(max_iter=1000))
+    ])
+
+    model = pipeline_log.fit(X_train, y_train)
+    y_prob = model.predict_proba(X_test)[:, 1]
+
+    auc = np.round(roc_auc_score(y_test, y_prob),4)
+    return auc
+
+```
+
+```{python}
+print("0 vs 1:", run_ovo(y1))
+print("0 vs 2:", run_ovo(y2))
+print("0 vs 3:", run_ovo(y3))
+```
+
+0 vs 3 had the highest AUC at 0.7778 meaning it was the best pair at distinguishing
+
